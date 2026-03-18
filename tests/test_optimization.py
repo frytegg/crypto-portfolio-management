@@ -1,4 +1,4 @@
-"""Tests for equal weight, Markowitz MVO, efficient frontier, and GARCH-GMV."""
+"""Tests for optimization strategies: equal weight, Markowitz, HRP, risk parity, CVaR."""
 from __future__ import annotations
 
 import numpy as np
@@ -6,12 +6,15 @@ import pandas as pd
 import pytest
 
 from core.optimization._base import PortfolioResult
+from core.optimization.cvar import optimize_cvar
 from core.optimization.equal_weight import optimize_equal_weight
+from core.optimization.hrp import get_hrp_dendrogram_data, optimize_hrp
 from core.optimization.markowitz import (
     compute_efficient_frontier,
     optimize_garch_gmv,
     optimize_markowitz,
 )
+from core.optimization.risk_parity import optimize_risk_parity
 
 
 # ---------------------------------------------------------------------------
@@ -138,4 +141,126 @@ class TestGarchGMV:
 
     def test_volatility_positive(self, large_returns: pd.DataFrame) -> None:
         result = optimize_garch_gmv(large_returns)
+        assert result.expected_volatility > 0
+
+
+# ---------------------------------------------------------------------------
+# HRP
+# ---------------------------------------------------------------------------
+
+class TestHRP:
+    def test_weights_sum_to_one(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_hrp(large_returns)
+        assert np.isclose(result.weights.sum(), 1.0, atol=1e-4)
+
+    def test_returns_portfolio_result(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_hrp(large_returns)
+        assert isinstance(result, PortfolioResult)
+        assert result.name == "Hierarchical Risk Parity"
+        assert "codependence" in result.metadata
+        assert "linkage" in result.metadata
+
+    def test_all_weights_positive(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_hrp(large_returns)
+        assert (result.weights >= -1e-6).all()
+
+    def test_volatility_positive(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_hrp(large_returns)
+        assert result.expected_volatility > 0
+
+    def test_dendrogram_data(self, large_returns: pd.DataFrame) -> None:
+        data = get_hrp_dendrogram_data(large_returns)
+        assert "linkage_matrix" in data
+        assert "asset_names" in data
+        n = len(large_returns.columns)
+        assert data["linkage_matrix"].shape == (n - 1, 4)
+        assert len(data["asset_names"]) == n
+
+
+# ---------------------------------------------------------------------------
+# Risk Parity
+# ---------------------------------------------------------------------------
+
+class TestRiskParity:
+    def test_weights_sum_to_one(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_risk_parity(large_returns)
+        assert np.isclose(result.weights.sum(), 1.0, atol=1e-4)
+
+    def test_risk_contributions_approximately_equal(
+        self, large_returns: pd.DataFrame
+    ) -> None:
+        """Each asset's risk contribution should be close to 1/N."""
+        result = optimize_risk_parity(large_returns, risk_measure="MV")
+        w = result.weights.values
+        cov = large_returns.cov().values
+        n = len(w)
+
+        # Marginal risk contribution
+        marginal_contrib = cov @ w
+        # Risk contribution per asset
+        risk_contrib = w * marginal_contrib
+        total_risk = w @ cov @ w
+        risk_contrib_pct = risk_contrib / total_risk
+
+        # Each should be within 5% of 1/N
+        target = 1.0 / n
+        assert np.allclose(risk_contrib_pct, target, atol=0.05), (
+            f"Risk contributions not equal: "
+            f"max deviation = {np.max(np.abs(risk_contrib_pct - target)):.4f}"
+        )
+
+    def test_returns_portfolio_result(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_risk_parity(large_returns)
+        assert isinstance(result, PortfolioResult)
+        assert result.name == "Equal Risk Contribution"
+        assert "method" in result.metadata
+
+    def test_custom_risk_budget(self, large_returns: pd.DataFrame) -> None:
+        n = len(large_returns.columns)
+        # Double budget for first asset, equal for rest
+        budget = [2.0] + [1.0] * (n - 1)
+        result = optimize_risk_parity(large_returns, risk_budget=budget)
+        assert np.isclose(result.weights.sum(), 1.0, atol=1e-4)
+
+    def test_volatility_positive(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_risk_parity(large_returns)
+        assert result.expected_volatility > 0
+
+
+# ---------------------------------------------------------------------------
+# CVaR
+# ---------------------------------------------------------------------------
+
+class TestCVaR:
+    def test_weights_sum_to_one(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_cvar(large_returns)
+        assert np.isclose(result.weights.sum(), 1.0, atol=1e-4)
+
+    def test_weights_within_bounds(self, large_returns: pd.DataFrame) -> None:
+        max_w = 0.15
+        result = optimize_cvar(large_returns, max_weight=max_w)
+        assert (result.weights <= max_w + 1e-6).all(), (
+            f"Max weight violated: {result.weights.max():.4f} > {max_w}"
+        )
+
+    def test_returns_portfolio_result(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_cvar(large_returns)
+        assert isinstance(result, PortfolioResult)
+        assert result.name == "Mean-CVaR"
+        assert result.metadata["alpha"] == 0.05
+        assert result.metadata["objective"] == "MinRisk"
+
+    def test_different_from_mv(self, large_returns: pd.DataFrame) -> None:
+        """CVaR optimization should produce different weights than MV."""
+        cvar_result = optimize_cvar(large_returns, objective="MinRisk")
+        mv_result = optimize_markowitz(
+            large_returns, objective="MinRisk", risk_measure="MV"
+        )
+        # Weights should not be identical (different risk measures)
+        assert not np.allclose(
+            cvar_result.weights.values, mv_result.weights.values, atol=1e-3
+        ), "CVaR and MV produced identical weights — expected different allocations"
+
+    def test_volatility_positive(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_cvar(large_returns)
         assert result.expected_volatility > 0
