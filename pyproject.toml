@@ -1,0 +1,24 @@
+[project]
+name = "crypto-portfolio-management"
+version = "0.1.0"
+description = "Multi-strategy crypto portfolio optimization dashboard"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=core --cov-report=term-missing --cov-fail-under=70 -v"
+filterwarnings = [
+    "ignore::FutureWarning:arch",
+    "ignore::UserWarning:hmmlearn",
+]
+
+[tool.coverage.run]
+source = ["core"]
+omit = ["tests/*", "dashboard/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "def __repr__",
+]
