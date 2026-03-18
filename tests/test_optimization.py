@@ -1,4 +1,4 @@
-"""Tests for optimization strategies: equal weight, Markowitz, HRP, risk parity, CVaR."""
+"""Tests for all 7 optimization strategies + efficient frontier."""
 from __future__ import annotations
 
 import numpy as np
@@ -6,6 +6,10 @@ import pandas as pd
 import pytest
 
 from core.optimization._base import PortfolioResult
+from core.optimization.black_litterman import (
+    generate_onchain_views,
+    optimize_black_litterman,
+)
 from core.optimization.cvar import optimize_cvar
 from core.optimization.equal_weight import optimize_equal_weight
 from core.optimization.hrp import get_hrp_dendrogram_data, optimize_hrp
@@ -14,6 +18,7 @@ from core.optimization.markowitz import (
     optimize_garch_gmv,
     optimize_markowitz,
 )
+from core.optimization.regime_alloc import optimize_regime_aware
 from core.optimization.risk_parity import optimize_risk_parity
 
 
@@ -263,4 +268,113 @@ class TestCVaR:
 
     def test_volatility_positive(self, large_returns: pd.DataFrame) -> None:
         result = optimize_cvar(large_returns)
+        assert result.expected_volatility > 0
+
+
+# ---------------------------------------------------------------------------
+# Black-Litterman
+# ---------------------------------------------------------------------------
+
+class TestBlackLitterman:
+    """Tests for BL optimization with on-chain signal views."""
+
+    # Signals that trigger all 3 view rules
+    BULLISH_SIGNALS: dict = {
+        "tvl_momentum_30d": 0.10,
+        "stablecoin_supply_change_30d": 0.05,
+        "dex_volume_trend_7d": 1.5,
+    }
+
+    # Signals that trigger no views
+    NEUTRAL_SIGNALS: dict = {
+        "tvl_momentum_30d": 0.01,
+        "stablecoin_supply_change_30d": 0.01,
+        "dex_volume_trend_7d": 1.0,
+    }
+
+    def test_generate_views_bullish(self, large_returns: pd.DataFrame) -> None:
+        assets = list(large_returns.columns)
+        P, Q, conf = generate_onchain_views(self.BULLISH_SIGNALS, assets)
+        # All 3 rules should fire (LINK is in large_returns via sample_returns)
+        assert len(Q) >= 1  # at least TVL momentum fires
+        assert P.shape[1] == len(assets)
+        assert len(conf) == len(Q)
+
+    def test_generate_views_no_signals(self, large_returns: pd.DataFrame) -> None:
+        assets = list(large_returns.columns)
+        P, Q, conf = generate_onchain_views(self.NEUTRAL_SIGNALS, assets)
+        assert P.empty
+        assert len(Q) == 0
+
+    def test_bl_with_views_weights_sum(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_black_litterman(
+            large_returns, onchain_signals=self.BULLISH_SIGNALS
+        )
+        assert isinstance(result, PortfolioResult)
+        assert np.isclose(result.weights.sum(), 1.0, atol=1e-4)
+        assert result.metadata["fallback"] is False
+        assert result.metadata["n_views"] >= 1
+
+    def test_bl_no_views_fallback(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_black_litterman(
+            large_returns, onchain_signals=self.NEUTRAL_SIGNALS
+        )
+        assert result.metadata["fallback"] is True
+        assert "fallback" in result.name.lower()
+        assert np.isclose(result.weights.sum(), 1.0, atol=1e-4)
+
+    def test_bl_volatility_positive(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_black_litterman(
+            large_returns, onchain_signals=self.BULLISH_SIGNALS
+        )
+        assert result.expected_volatility > 0
+
+
+# ---------------------------------------------------------------------------
+# Regime-Aware
+# ---------------------------------------------------------------------------
+
+class TestRegimeAware:
+    """Tests for regime-aware allocation using mocked regime_info dicts."""
+
+    @staticmethod
+    def _make_regime_info(regime_name: str) -> dict:
+        """Create a minimal regime_info dict for testing."""
+        return {
+            "current_regime_name": regime_name,
+            "regime_means": np.array([-0.001, 0.002]),
+            "transition_matrix": np.array([[0.95, 0.05], [0.10, 0.90]]),
+        }
+
+    def test_bull_uses_max_sharpe(self, large_returns: pd.DataFrame) -> None:
+        info = self._make_regime_info("Bull")
+        result = optimize_regime_aware(large_returns, regime_info=info)
+        assert "Bull" in result.name
+        assert result.metadata["strategy_used"] == "Max Sharpe (Markowitz)"
+        assert np.isclose(result.weights.sum(), 1.0, atol=1e-4)
+
+    def test_bear_uses_min_vol(self, large_returns: pd.DataFrame) -> None:
+        info = self._make_regime_info("Bear")
+        result = optimize_regime_aware(large_returns, regime_info=info)
+        assert "Bear" in result.name
+        assert result.metadata["strategy_used"] == "Min Volatility (Markowitz)"
+        assert np.isclose(result.weights.sum(), 1.0, atol=1e-4)
+
+    def test_sideways_uses_risk_parity(self, large_returns: pd.DataFrame) -> None:
+        info = self._make_regime_info("Sideways")
+        result = optimize_regime_aware(large_returns, regime_info=info)
+        assert "Sideways" in result.name
+        assert result.metadata["strategy_used"] == "Risk Parity"
+        assert np.isclose(result.weights.sum(), 1.0, atol=1e-4)
+
+    def test_metadata_contains_regime_info(self, large_returns: pd.DataFrame) -> None:
+        info = self._make_regime_info("Bull")
+        result = optimize_regime_aware(large_returns, regime_info=info)
+        assert "regime_means" in result.metadata
+        assert "transition_matrix" in result.metadata
+        assert result.metadata["current_regime"] == "Bull"
+
+    def test_volatility_positive(self, large_returns: pd.DataFrame) -> None:
+        info = self._make_regime_info("Bear")
+        result = optimize_regime_aware(large_returns, regime_info=info)
         assert result.expected_volatility > 0
