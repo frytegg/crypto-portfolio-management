@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=core --cov-report=term-missing --cov-fail-under=70 -v"
+addopts = "-p no:dash --cov=core --cov-report=term-missing --cov-fail-under=70 -v"
 filterwarnings = [
     "ignore::FutureWarning:arch",
     "ignore::UserWarning:hmmlearn",
