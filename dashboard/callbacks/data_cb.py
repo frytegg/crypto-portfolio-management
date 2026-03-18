@@ -15,6 +15,8 @@ import structlog
 from core.data.cache import cache, get_live_price
 from core.data.fetcher import fetch_historical_data
 from core.data.universe import UniverseAsset, fetch_universe
+from dashboard.callbacks.garch_cb import build_garch_tab
+from dashboard.callbacks.regime_cb import build_regime_tab
 from dashboard.components.metric_card import create_metric_card
 from dashboard.theme import COLORS, FIGURE_LAYOUT
 
@@ -119,12 +121,14 @@ def render_tab_content(
     """Route tab selection to appropriate tab layout."""
     if active_tab == "tab-overview":
         return _build_overview_tab(universe_data, returns_summary)
+    if active_tab == "tab-garch":
+        return build_garch_tab(returns_summary)
+    if active_tab == "tab-regime":
+        return build_regime_tab(returns_summary)
 
     # Placeholder for other tabs — will be implemented in later phases
     tab_labels = {
         "tab-optimization": "Optimization",
-        "tab-garch": "GARCH Volatility",
-        "tab-regime": "Regime Detection",
         "tab-onchain": "On-Chain Signals",
         "tab-backtest": "Backtest",
         "tab-live": "Live Prices",
