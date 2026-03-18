@@ -27,7 +27,9 @@ def create_layout() -> dbc.Container:
             ),
             # Live price update interval (every 5 seconds)
             dcc.Interval(id="live-interval", interval=5_000, n_intervals=0),
-            # Client-side stores for computed results only
+            # Client-side stores for metadata and computed results
+            dcc.Store(id="universe-store"),
+            dcc.Store(id="returns-store"),
             dcc.Store(id="strategy-results-store"),
             dcc.Store(id="backtest-results-store"),
             dcc.Store(id="garch-results-store"),
