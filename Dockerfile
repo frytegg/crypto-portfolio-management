@@ -1,19 +1,17 @@
 FROM python:3.11-slim
 
-# Build dependencies for numpy, scipy, cvxpy
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libgomp1 \
+        build-essential python3-dev libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
 ENV PORT=8050
-EXPOSE ${PORT}
+EXPOSE $PORT
 
-CMD ["gunicorn", "app:server", "--workers", "1", "--threads", "4", "--bind", "0.0.0.0:8050"]
+CMD ["sh", "-c", "gunicorn app:server --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120"]
