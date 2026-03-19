@@ -9,9 +9,10 @@ from __future__ import annotations
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from dashboard.theme import STRATEGY_COLORS
 
-# DARKLY-themed accent color for loading spinners
-_LOADING_COLOR = "#00d4ff"
+# DARKLY-themed accent color for loading spinners — matches Markowitz MVO
+_LOADING_COLOR = STRATEGY_COLORS["markowitz"]
 
 
 def create_layout() -> dbc.Container:

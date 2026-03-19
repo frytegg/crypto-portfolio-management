@@ -247,6 +247,7 @@ def _build_signal_table(signals: OnchainSignals) -> html.Div:
         bordered=True,
         dark=True,
         hover=True,
+        responsive=True,
         size="sm",
     )
 
@@ -337,6 +338,7 @@ def _build_bl_views_table(signals: OnchainSignals) -> html.Div:
         bordered=True,
         dark=True,
         hover=True,
+        responsive=True,
         size="sm",
     )
 

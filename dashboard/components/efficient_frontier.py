@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import plotly.graph_objects as go
 
-from dashboard.theme import COLORS, FIGURE_LAYOUT
+from dashboard.theme import COLORS, FIGURE_LAYOUT, STRATEGY_COLORS
 
 
 def create_efficient_frontier_figure(
@@ -36,7 +36,7 @@ def create_efficient_frontier_figure(
         x=risks,
         y=rets,
         mode="lines",
-        line=dict(color="#00d4ff", width=2),
+        line=dict(color=STRATEGY_COLORS["markowitz"], width=2),
         name="Efficient Frontier",
     ))
 
@@ -48,7 +48,7 @@ def create_efficient_frontier_figure(
         text=list(asset_risks.index),
         textposition="top center",
         textfont=dict(size=9),
-        marker=dict(size=8, color="#888"),
+        marker=dict(size=8, color=COLORS["text_muted"]),
         name="Assets",
     ))
 
@@ -101,7 +101,7 @@ def create_efficient_frontier_figure(
             marker=dict(
                 symbol="circle-open",
                 size=14,
-                color="red",
+                color=COLORS["danger"],
                 line=dict(width=2),
             ),
             name="Current Portfolio",

@@ -239,6 +239,7 @@ def _build_transition_table(
                 [header, html.Tbody(rows)],
                 bordered=True,
                 hover=True,
+                responsive=True,
                 color="dark",
                 size="sm",
                 className="mb-0",
