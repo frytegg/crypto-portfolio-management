@@ -44,6 +44,7 @@ def create_layout() -> dbc.Container:
                     dbc.Tab(label="Optimization", tab_id="tab-optimization"),
                     dbc.Tab(label="GARCH Volatility", tab_id="tab-garch"),
                     dbc.Tab(label="Regime Detection", tab_id="tab-regime"),
+                    dbc.Tab(label="Risk Dashboard", tab_id="tab-risk"),
                     dbc.Tab(label="On-Chain Signals", tab_id="tab-onchain"),
                     dbc.Tab(label="Backtest", tab_id="tab-backtest"),
                     dbc.Tab(label="Live Prices", tab_id="tab-live"),
