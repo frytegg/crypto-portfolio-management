@@ -282,3 +282,54 @@ class TestEdgeCases:
         avg_turnover = result.turnover_history.mean()
         # Equal weight drift + rebalance → moderate turnover
         assert 0 < avg_turnover < 1.0
+
+
+# ---------------------------------------------------------------------------
+# Test: equity_curve always positive
+# ---------------------------------------------------------------------------
+
+class TestEquityCurveAlwaysPositive:
+    """Backtest equity curve must always be > 0 for any strategy.
+
+    The equity curve is built from cumulative returns starting at initial_capital.
+    Even with transaction costs, it should never go negative.
+    """
+
+    def test_equal_weight_equity_positive(
+        self, synthetic_prices: pd.DataFrame, monthly_config: BacktestConfig,
+    ) -> None:
+        result = run_backtest(synthetic_prices, monthly_config)
+        assert (result.equity_curve > 0).all(), (
+            f"Equity curve went non-positive: min={result.equity_curve.min():.2f}"
+        )
+
+    def test_markowitz_equity_positive(
+        self, synthetic_prices: pd.DataFrame,
+    ) -> None:
+        config = BacktestConfig(
+            strategy="markowitz",
+            start_date="2023-01-01",
+            end_date="2024-12-31",
+            rebalance_frequency="monthly",
+            lookback_days=365,
+            transaction_cost_bps=10.0,
+            max_weight=0.30,
+            initial_capital=100_000.0,
+        )
+        result = run_backtest(synthetic_prices, config)
+        assert (result.equity_curve > 0).all()
+
+    def test_high_tx_cost_equity_positive(
+        self, synthetic_prices: pd.DataFrame,
+    ) -> None:
+        """Even with very high transaction costs, equity should stay positive."""
+        config = BacktestConfig(
+            strategy="equal_weight",
+            start_date="2023-01-01",
+            end_date="2024-12-31",
+            rebalance_frequency="weekly",
+            transaction_cost_bps=100.0,  # 1% per trade — very high
+            initial_capital=100_000.0,
+        )
+        result = run_backtest(synthetic_prices, config)
+        assert (result.equity_curve > 0).all()

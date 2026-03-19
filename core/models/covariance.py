@@ -27,7 +27,7 @@ _METHOD_MAP: dict[str, str] = {
     "gerber": "gerber1",
     "gerber2": "gerber2",
     "oas": "oas",
-    "denoised": "denoise",
+    "denoised": "fixed",
 }
 
 VALID_METHODS = list(_METHOD_MAP.keys())

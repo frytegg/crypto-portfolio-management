@@ -378,3 +378,110 @@ class TestRegimeAware:
         info = self._make_regime_info("Bear")
         result = optimize_regime_aware(large_returns, regime_info=info)
         assert result.expected_volatility > 0
+
+
+# ---------------------------------------------------------------------------
+# Cross-strategy: all strategies long-only
+# ---------------------------------------------------------------------------
+
+class TestAllStrategiesLongOnly:
+    """Every strategy must produce non-negative weights (long-only constraint)."""
+
+    _BULLISH_SIGNALS: dict = {
+        "tvl_momentum_30d": 0.10,
+        "stablecoin_supply_change_30d": 0.05,
+        "dex_volume_trend_7d": 1.5,
+    }
+
+    def test_equal_weight_long_only(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_equal_weight(large_returns)
+        assert (result.weights >= -1e-6).all(), f"Negative weight: {result.weights.min()}"
+
+    def test_markowitz_long_only(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_markowitz(large_returns)
+        assert (result.weights >= -1e-6).all(), f"Negative weight: {result.weights.min()}"
+
+    def test_garch_gmv_long_only(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_garch_gmv(large_returns)
+        assert (result.weights >= -1e-6).all(), f"Negative weight: {result.weights.min()}"
+
+    def test_hrp_long_only(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_hrp(large_returns)
+        assert (result.weights >= -1e-6).all(), f"Negative weight: {result.weights.min()}"
+
+    def test_risk_parity_long_only(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_risk_parity(large_returns)
+        assert (result.weights >= -1e-6).all(), f"Negative weight: {result.weights.min()}"
+
+    def test_cvar_long_only(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_cvar(large_returns)
+        assert (result.weights >= -1e-6).all(), f"Negative weight: {result.weights.min()}"
+
+    def test_black_litterman_long_only(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_black_litterman(
+            large_returns, onchain_signals=self._BULLISH_SIGNALS
+        )
+        assert (result.weights >= -1e-6).all(), f"Negative weight: {result.weights.min()}"
+
+
+# ---------------------------------------------------------------------------
+# Cross-strategy: all strategies respect max_weight
+# ---------------------------------------------------------------------------
+
+class TestAllStrategiesMaxWeight:
+    """Strategies that accept max_weight must respect it."""
+
+    MAX_W = 0.15
+
+    def test_markowitz_max_weight(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_markowitz(large_returns, max_weight=self.MAX_W)
+        assert (result.weights <= self.MAX_W + 1e-6).all()
+
+    def test_garch_gmv_max_weight(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_garch_gmv(large_returns, max_weight=self.MAX_W)
+        assert (result.weights <= self.MAX_W + 1e-6).all()
+
+    def test_cvar_max_weight(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_cvar(large_returns, max_weight=self.MAX_W)
+        assert (result.weights <= self.MAX_W + 1e-6).all()
+
+
+# ---------------------------------------------------------------------------
+# Risk Parity: max/min risk contribution ratio
+# ---------------------------------------------------------------------------
+
+class TestRiskParityContributionRatio:
+    """Max/min risk contribution ratio should be < 2.0 for risk parity."""
+
+    def test_risk_contribution_ratio_bounded(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_risk_parity(large_returns, risk_measure="MV")
+        w = result.weights.values
+        cov = large_returns.cov().values
+
+        # Risk contribution per asset
+        marginal_contrib = cov @ w
+        risk_contrib = w * marginal_contrib
+        total_risk = w @ cov @ w
+        risk_contrib_pct = risk_contrib / total_risk
+
+        # Filter out near-zero weights (assets effectively excluded)
+        active = risk_contrib_pct[w > 0.001]
+        if len(active) >= 2:
+            ratio = active.max() / active.min()
+            assert ratio < 2.0, (
+                f"Max/min risk contribution ratio {ratio:.2f} >= 2.0"
+            )
+
+
+# ---------------------------------------------------------------------------
+# HRP: no single weight exceeds 50%
+# ---------------------------------------------------------------------------
+
+class TestHRPMaxWeight:
+    """HRP should diversify — no single asset should get >50% weight."""
+
+    def test_no_weight_exceeds_50_pct(self, large_returns: pd.DataFrame) -> None:
+        result = optimize_hrp(large_returns)
+        assert result.weights.max() <= 0.50 + 1e-6, (
+            f"HRP max weight {result.weights.max():.4f} exceeds 50%"
+        )

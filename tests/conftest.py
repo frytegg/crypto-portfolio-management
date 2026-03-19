@@ -15,13 +15,14 @@ ASSET_NAMES = ["BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOT", "LINK", "AVAX", 
 
 @pytest.fixture
 def sample_returns() -> pd.DataFrame:
-    """50 trading days x 10 assets of synthetic log returns.
+    """252 trading days x 10 assets of synthetic log returns.
 
     Generated with fixed seed for reproducibility.
     Realistic crypto-like properties: high vol, mild correlation.
+    Mean ~N(0.001, 0.02) daily.
     """
     rng = np.random.default_rng(42)
-    n_days = 50
+    n_days = 252
     n_assets = len(ASSET_NAMES)
 
     # Base correlation structure (crypto assets are moderately correlated)
@@ -47,12 +48,12 @@ def sample_returns() -> pd.DataFrame:
 
 @pytest.fixture
 def large_returns(sample_returns: pd.DataFrame) -> pd.DataFrame:
-    """500 trading days x 45 assets. Simulates full universe for backtest tests.
+    """730 trading days x 45 assets. Simulates full universe for optimization tests.
 
     Uses block bootstrap from sample_returns to generate realistic autocorrelation.
     """
     rng = np.random.default_rng(123)
-    n_days = 500
+    n_days = 730
     n_extra_assets = 35
     block_size = 10
 
@@ -61,7 +62,7 @@ def large_returns(sample_returns: pd.DataFrame) -> pd.DataFrame:
     daily_vols = rng.uniform(0.02, 0.06, n_extra_assets)
     extra_returns = rng.normal(0, 1, (n_days, n_extra_assets)) * daily_vols
 
-    # Block bootstrap the original 10 assets to 500 days
+    # Block bootstrap the original 10 assets to 730 days
     base = sample_returns.values
     n_blocks = n_days // block_size + 1
     block_starts = rng.integers(0, len(base) - block_size, size=n_blocks)
@@ -76,20 +77,29 @@ def large_returns(sample_returns: pd.DataFrame) -> pd.DataFrame:
 
 
 @pytest.fixture
-def sample_prices(sample_returns: pd.DataFrame) -> pd.DataFrame:
-    """Reconstruct price levels from sample_returns.
+def btc_returns() -> pd.Series:
+    """730 rows of BTC-like returns for regime tests.
 
-    Starts at realistic crypto prices (BTC ~40k, ETH ~2.5k, etc.)
+    Two distinct regime structure: bear (first 365 days) and bull (last 365 days).
     """
-    initial_prices = pd.Series(
-        [40000, 2500, 300, 100, 0.5, 0.35, 7, 15, 35, 8],
-        index=sample_returns.columns,
-    )
+    rng = np.random.default_rng(99)
+    n_bear = 365
+    n_bull = 365
 
-    # Cumulative returns -> price levels
+    bear = rng.normal(-0.002, 0.04, n_bear)
+    bull = rng.normal(0.003, 0.025, n_bull)
+
+    all_returns = np.concatenate([bear, bull])
+    dates = pd.bdate_range(start="2023-01-02", periods=len(all_returns))
+
+    return pd.Series(all_returns, index=dates, name="BTC")
+
+
+@pytest.fixture
+def sample_prices(sample_returns: pd.DataFrame) -> pd.DataFrame:
+    """Reconstruct price levels from sample_returns, starting at 100."""
     cum_returns = sample_returns.cumsum()
-    prices = initial_prices * np.exp(cum_returns)
-
+    prices = 100.0 * np.exp(cum_returns)
     return prices
 
 
