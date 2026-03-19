@@ -48,8 +48,11 @@ log.info(
     ws_enabled=settings.BINANCE_WS_ENABLED,
 )
 
+import threading
+
 from core.data.universe import fetch_universe
 from core.data.fetcher import fetch_historical_data
+from core.data.onchain import fetch_onchain_data
 from core.data.price_feed import BinancePriceFeed
 
 try:
@@ -65,6 +68,16 @@ if settings.BINANCE_WS_ENABLED and universe:
     price_feed.start()
 else:
     log.info("price_feed_skipped", ws_enabled=settings.BINANCE_WS_ENABLED, universe_size=len(universe))
+
+# On-chain data fetch on background thread (non-blocking)
+def _prefetch_onchain() -> None:
+    try:
+        fetch_onchain_data()
+        log.info("onchain_prefetch_done")
+    except Exception as exc:
+        log.warning("onchain_prefetch_failed", error=str(exc))
+
+threading.Thread(target=_prefetch_onchain, name="onchain-prefetch", daemon=True).start()
 
 if __name__ == "__main__":
     app.run(debug=settings.APP_DEBUG, port=settings.PORT)

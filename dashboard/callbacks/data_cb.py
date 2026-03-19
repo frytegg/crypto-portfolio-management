@@ -17,6 +17,7 @@ from core.data.fetcher import fetch_historical_data
 from core.data.universe import UniverseAsset, fetch_universe
 from dashboard.callbacks.backtest_cb import build_backtest_tab
 from dashboard.callbacks.garch_cb import build_garch_tab
+from dashboard.callbacks.onchain_cb import build_onchain_tab
 from dashboard.callbacks.optimization_cb import build_optimization_tab
 from dashboard.callbacks.regime_cb import build_regime_tab
 from dashboard.callbacks.report_cb import build_report_tab
@@ -137,16 +138,13 @@ def render_tab_content(
     if active_tab == "tab-report":
         return build_report_tab(returns_summary)
 
+    if active_tab == "tab-onchain":
+        return build_onchain_tab()
     if active_tab == "tab-live":
         return _build_live_tab(universe_data)
 
-    # Placeholder for remaining tabs
-    tab_labels = {
-        "tab-onchain": "On-Chain Signals",
-    }
-    label = tab_labels.get(active_tab, active_tab)
     return html.Div(
-        html.H4(f"{label} — Coming Soon", className="text-muted text-center mt-5"),
+        html.H4(f"{active_tab} — Coming Soon", className="text-muted text-center mt-5"),
     )
 
 
