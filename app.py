@@ -47,7 +47,7 @@ app.layout = create_layout()
 # 5. Callbacks
 register_all_callbacks(app)
 
-# 6. Startup tasks (data prefetch + WebSocket)
+# 6. Startup tasks (data seeding + WebSocket)
 log.info(
     "app_startup",
     env=settings.APP_ENV,
@@ -63,53 +63,82 @@ from core.data.fetcher import fetch_historical_data
 from core.data.onchain import fetch_onchain_data
 from core.data.price_feed import BinancePriceFeed
 
-try:
-    universe = fetch_universe()
-    fetch_historical_data(universe)
-    # Store timestamp so the UI can detect data staleness
-    cache.set("meta:data_updated_at", datetime.now(timezone.utc).isoformat())
-except Exception as exc:
-    log.error("startup_data_fetch_failed", error=str(exc))
-    universe = []
+_STALE_THRESHOLD_SECONDS = 4 * 3600  # 4 hours
 
-if settings.BINANCE_WS_ENABLED and universe:
-    binance_symbols = [a.binance_symbol for a in universe if a.binance_symbol]
-    price_feed = BinancePriceFeed(cache, binance_symbols)
-    price_feed.start()
-else:
-    log.info("price_feed_skipped", ws_enabled=settings.BINANCE_WS_ENABLED, universe_size=len(universe))
 
-# On-chain data fetch on background thread (non-blocking)
-def _prefetch_onchain() -> None:
+def _is_cache_stale() -> bool:
+    """Check if cached data is older than 4 hours or missing."""
+    ts = cache.get("meta:data_updated_at")
+    if ts is None:
+        return True
     try:
-        fetch_onchain_data()
-        log.info("onchain_prefetch_done")
-    except Exception as exc:
-        log.warning("onchain_prefetch_failed", error=str(exc))
+        updated_at = datetime.fromisoformat(ts)
+        age = (datetime.now(timezone.utc) - updated_at).total_seconds()
+        return age > _STALE_THRESHOLD_SECONDS
+    except (ValueError, TypeError):
+        return True
 
-threading.Thread(target=_prefetch_onchain, name="onchain-prefetch", daemon=True).start()
 
-# Pre-cache equal_weight result so Strategy Lab shows something immediately
-def _precache_equal_weight() -> None:
+def _startup_data_seeding() -> None:
+    """Seed all data caches on startup (runs in background thread).
+
+    1. Fetch universe (if empty or stale)
+    2. Fetch historical prices/returns
+    3. Fetch on-chain data
+    4. Pre-cache equal_weight optimization
+    """
     try:
-        returns_df = cache.get("returns")
-        if returns_df is not None and not returns_df.empty:
-            from core.optimization.equal_weight import optimize_equal_weight
-            result = optimize_equal_weight(returns_df)
-            cache.set("precached_equal_weight", {
-                "name": result.name,
-                "weights": {k: float(v) for k, v in result.weights.items()},
-                "expected_return": float(result.expected_return),
-                "expected_volatility": float(result.expected_volatility),
-                "sharpe_ratio": float(result.sharpe_ratio),
-                "metadata": result.metadata,
-            })
-            log.info("equal_weight_precached")
-    except Exception as exc:
-        log.warning("equal_weight_precache_failed", error=str(exc))
+        # 1. Universe
+        universe = fetch_universe()
+        log.info("startup_universe_fetched", n_assets=len(universe))
 
-if universe:
-    threading.Thread(target=_precache_equal_weight, name="ew-precache", daemon=True).start()
+        # 2. Historical prices/returns
+        fetch_historical_data(universe)
+        cache.set("meta:data_updated_at", datetime.now(timezone.utc).isoformat())
+        log.info("startup_historical_data_fetched")
+
+        # 3. On-chain data
+        try:
+            fetch_onchain_data()
+            log.info("startup_onchain_data_fetched")
+        except Exception as exc:
+            log.warning("startup_onchain_fetch_failed", error=str(exc))
+
+        # 4. Pre-cache equal_weight
+        try:
+            returns_df = cache.get("returns")
+            if returns_df is not None and not returns_df.empty:
+                from core.optimization.equal_weight import optimize_equal_weight
+                result = optimize_equal_weight(returns_df)
+                cache.set("precached_equal_weight", {
+                    "name": result.name,
+                    "weights": {k: float(v) for k, v in result.weights.items()},
+                    "expected_return": float(result.expected_return),
+                    "expected_volatility": float(result.expected_volatility),
+                    "sharpe_ratio": float(result.sharpe_ratio),
+                    "metadata": result.metadata,
+                })
+                log.info("startup_equal_weight_precached")
+        except Exception as exc:
+            log.warning("startup_equal_weight_precache_failed", error=str(exc))
+
+        # 5. Start WebSocket price feed
+        if settings.BINANCE_WS_ENABLED and universe:
+            binance_symbols = [a.binance_symbol for a in universe if a.binance_symbol]
+            price_feed = BinancePriceFeed(cache, binance_symbols)
+            price_feed.start()
+            log.info("startup_price_feed_started", n_symbols=len(binance_symbols))
+        else:
+            log.info("startup_price_feed_skipped", ws_enabled=settings.BINANCE_WS_ENABLED)
+
+        log.info("startup_data_seeding_complete")
+
+    except Exception as exc:
+        log.error("startup_data_seeding_failed", error=str(exc), exc_info=True)
+
+
+# Run data seeding in background thread so gunicorn can start serving immediately
+threading.Thread(target=_startup_data_seeding, name="data-seeding", daemon=True).start()
 
 if __name__ == "__main__":
     app.run(debug=settings.APP_DEBUG, port=settings.PORT)
