@@ -137,10 +137,12 @@ def render_tab_content(
     if active_tab == "tab-report":
         return build_report_tab(returns_summary)
 
+    if active_tab == "tab-live":
+        return _build_live_tab(universe_data)
+
     # Placeholder for remaining tabs
     tab_labels = {
         "tab-onchain": "On-Chain Signals",
-        "tab-live": "Live Prices",
     }
     label = tab_labels.get(active_tab, active_tab)
     return html.Div(
@@ -213,7 +215,7 @@ def _build_overview_tab(
         className="mb-4",
     )
 
-    # Top-10 live price ticker row
+    # Top-10 live price ticker row (id="live-price-row" for live_cb.py updates)
     live_row = _build_live_price_row(universe[:10])
 
     # Market treemap
@@ -267,7 +269,7 @@ def _build_live_price_row(top_assets: list[UniverseAsset]) -> dbc.Row:
             )
         )
 
-    return dbc.Row(badges, className="mb-4 g-2")
+    return dbc.Row(badges, id="live-price-row", className="mb-4 g-2")
 
 
 # ---------------------------------------------------------------------------
@@ -510,4 +512,94 @@ def _build_risk_tab(returns_summary: dict | None) -> html.Div:
             dbc.Col(dcc.Graph(figure=sharpe_fig), md=6),
             dbc.Col(dcc.Graph(figure=vol_fig), md=6),
         ], className="mb-3"),
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Live Prices tab (Tab 8)
+# ---------------------------------------------------------------------------
+
+def _build_live_tab(universe_data: list[dict] | None) -> html.Div:
+    """Build the dedicated Live Prices tab with all tracked assets."""
+    if not universe_data:
+        return html.Div(
+            dbc.Spinner(
+                html.H5("Waiting for universe data...", className="text-muted"),
+                color="primary",
+            ),
+            className="text-center mt-5",
+        )
+
+    assets = []
+    for a_dict in universe_data:
+        try:
+            assets.append(UniverseAsset(**a_dict))
+        except (TypeError, KeyError):
+            continue
+
+    rows = []
+    for asset in assets:
+        live = None
+        if asset.binance_symbol:
+            live = get_live_price(asset.binance_symbol)
+
+        if live is not None:
+            price = live
+            source = "Binance WS"
+            if asset.current_price and asset.current_price > 0:
+                pct_change = ((price - asset.current_price) / asset.current_price) * 100
+            else:
+                pct_change = asset.price_change_24h
+        else:
+            price = asset.current_price
+            source = "CoinGecko"
+            pct_change = asset.price_change_24h
+
+        color = _pct_color(pct_change)
+
+        rows.append(
+            html.Tr([
+                html.Td(
+                    html.Span(asset.symbol, style={"fontWeight": "bold"}),
+                ),
+                html.Td(asset.name),
+                html.Td(_fmt_price(price)),
+                html.Td(
+                    _fmt_pct(pct_change),
+                    style={"color": color, "fontWeight": "bold"},
+                ),
+                html.Td(source, style={
+                    "color": COLORS["success"] if source == "Binance WS" else COLORS["text_muted"],
+                    "fontSize": "0.85em",
+                }),
+            ])
+        )
+
+    table = dbc.Table(
+        [
+            html.Thead(html.Tr([
+                html.Th("Symbol"),
+                html.Th("Name"),
+                html.Th("Price (USD)"),
+                html.Th("Change"),
+                html.Th("Source"),
+            ])),
+            html.Tbody(rows),
+        ],
+        bordered=True,
+        dark=True,
+        hover=True,
+        striped=True,
+        className="mt-3",
+    )
+
+    return html.Div([
+        html.H4("Live Prices", className="mb-2"),
+        html.P(
+            "Prices update every 5 seconds via Binance WebSocket. "
+            "Green dot indicates live data; fallback to CoinGecko snapshot.",
+            className="text-muted mb-3",
+            style={"fontSize": "0.9em"},
+        ),
+        table,
     ])
