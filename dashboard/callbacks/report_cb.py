@@ -155,8 +155,8 @@ def generate_report(
         return status, dcc.send_file(output_path, filename="portfolio_tearsheet.html")
 
     except Exception as exc:
-        log.exception("tearsheet_generation_failed")
+        log.error("tearsheet_generation_failed", error=str(exc), exc_info=True)
         return (
-            dbc.Alert(f"Report generation failed: {exc}", color="danger"),
+            dbc.Alert(f"Report generation failed: {exc}", color="danger", dismissable=True),
             no_update,
         )

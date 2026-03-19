@@ -107,28 +107,34 @@ def run_regime_detection(
 
     log.info("detecting_regimes", asset=btc_col, n_regimes=n_regimes)
 
-    regime_data = detect_regimes(
-        returns_df[btc_col],
-        n_regimes=n_regimes,
-    )
+    try:
+        regime_data = detect_regimes(
+            returns_df[btc_col],
+            n_regimes=n_regimes,
+        )
 
-    # Serialize for dcc.Store
-    serialized = {
-        "regimes_values": regime_data["regimes"].values.tolist(),
-        "regimes_index": [str(d) for d in regime_data["regimes"].index],
-        "regime_names": {str(k): v for k, v in regime_data["regime_names"].items()},
-        "transition_matrix": regime_data["transition_matrix"].tolist(),
-        "regime_means": regime_data["regime_means"].tolist(),
-        "regime_vols": regime_data["regime_vols"].tolist(),
-        "current_regime": regime_data["current_regime"],
-        "current_regime_name": regime_data["current_regime_name"],
-        "btc_col": btc_col,
-    }
+        # Serialize for dcc.Store
+        serialized = {
+            "regimes_values": regime_data["regimes"].values.tolist(),
+            "regimes_index": [str(d) for d in regime_data["regimes"].index],
+            "regime_names": {str(k): v for k, v in regime_data["regime_names"].items()},
+            "transition_matrix": regime_data["transition_matrix"].tolist(),
+            "regime_means": regime_data["regime_means"].tolist(),
+            "regime_vols": regime_data["regime_vols"].tolist(),
+            "current_regime": regime_data["current_regime"],
+            "current_regime_name": regime_data["current_regime_name"],
+            "btc_col": btc_col,
+        }
 
-    # Build the visual output
-    content = _build_regime_content(regime_data, btc_col)
+        # Build the visual output
+        content = _build_regime_content(regime_data, btc_col)
 
-    return serialized, content
+        return serialized, content
+    except Exception as exc:
+        log.error("run_regime_detection_failed", error=str(exc), exc_info=True)
+        return no_update, dbc.Alert(
+            f"Regime detection failed: {exc}", color="danger", dismissable=True,
+        )
 
 
 # ---------------------------------------------------------------------------

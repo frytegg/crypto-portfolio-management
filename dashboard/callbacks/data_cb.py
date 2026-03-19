@@ -6,6 +6,7 @@ Tab routing dispatches active tab to the appropriate layout builder.
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import datetime, timezone
 
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
@@ -94,6 +95,9 @@ def load_startup_data(_active_tab: str) -> tuple:
             "end_date": str(returns.index[-1].date()) if len(returns) > 0 else "",
         }
 
+        # Track data freshness for staleness indicator
+        cache.set("meta:data_updated_at", datetime.now(timezone.utc).isoformat())
+
         log.info(
             "startup_data_loaded",
             universe_size=len(universe),
@@ -103,7 +107,7 @@ def load_startup_data(_active_tab: str) -> tuple:
         return universe_data, returns_summary
 
     except Exception as exc:
-        log.error("startup_data_load_failed", error=str(exc))
+        log.error("startup_data_load_failed", error=str(exc), exc_info=True)
         return [], {}
 
 
@@ -123,29 +127,40 @@ def render_tab_content(
     returns_summary: dict | None,
 ) -> html.Div:
     """Route tab selection to appropriate tab layout."""
-    if active_tab == "tab-overview":
-        return _build_overview_tab(universe_data, returns_summary)
-    if active_tab == "tab-optimization":
-        return build_optimization_tab(returns_summary)
-    if active_tab == "tab-garch":
-        return build_garch_tab(returns_summary)
-    if active_tab == "tab-regime":
-        return build_regime_tab(returns_summary)
-    if active_tab == "tab-risk":
-        return _build_risk_tab(returns_summary)
-    if active_tab == "tab-backtest":
-        return build_backtest_tab(returns_summary)
-    if active_tab == "tab-report":
-        return build_report_tab(returns_summary)
+    try:
+        if active_tab == "tab-overview":
+            return _build_overview_tab(universe_data, returns_summary)
+        if active_tab == "tab-optimization":
+            return build_optimization_tab(returns_summary)
+        if active_tab == "tab-garch":
+            return build_garch_tab(returns_summary)
+        if active_tab == "tab-regime":
+            return build_regime_tab(returns_summary)
+        if active_tab == "tab-risk":
+            return _build_risk_tab(returns_summary)
+        if active_tab == "tab-backtest":
+            return build_backtest_tab(returns_summary)
+        if active_tab == "tab-report":
+            return build_report_tab(returns_summary)
 
-    if active_tab == "tab-onchain":
-        return build_onchain_tab()
-    if active_tab == "tab-live":
-        return _build_live_tab(universe_data)
+        if active_tab == "tab-onchain":
+            return build_onchain_tab()
+        if active_tab == "tab-live":
+            return _build_live_tab(universe_data)
 
-    return html.Div(
-        html.H4(f"{active_tab} — Coming Soon", className="text-muted text-center mt-5"),
-    )
+        return html.Div(
+            html.H4(f"{active_tab} — Coming Soon", className="text-muted text-center mt-5"),
+        )
+    except Exception as exc:
+        log.error("render_tab_content_failed", tab=active_tab, error=str(exc), exc_info=True)
+        return html.Div(
+            dbc.Alert(
+                f"Error loading tab: {exc}",
+                color="danger",
+                dismissable=True,
+            ),
+            className="mt-3",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -434,83 +449,90 @@ def _build_risk_tab(returns_summary: dict | None) -> html.Div:
             className="mt-3",
         )
 
-    import numpy as np
-    import plotly.graph_objects as go_
-    from dashboard.components.correlation_heatmap import create_correlation_heatmap
-    from dashboard.components.drawdown_chart import create_drawdown_chart
+    try:
+        import numpy as np
+        import plotly.graph_objects as go_
+        from dashboard.components.correlation_heatmap import create_correlation_heatmap
+        from dashboard.components.drawdown_chart import create_drawdown_chart
 
-    # --- Correlation heatmap ---
-    corr_fig = create_correlation_heatmap(returns)
+        # --- Correlation heatmap ---
+        corr_fig = create_correlation_heatmap(returns)
 
-    # --- Equal-weight portfolio for drawdown/rolling stats ---
-    n_assets = len(returns.columns)
-    port_returns = (returns * (1.0 / n_assets)).sum(axis=1)
-    equity = (1 + port_returns).cumprod()
-    dd_series = equity / equity.cummax() - 1
+        # --- Equal-weight portfolio for drawdown/rolling stats ---
+        n_assets = len(returns.columns)
+        port_returns = (returns * (1.0 / n_assets)).sum(axis=1)
+        equity = (1 + port_returns).cumprod()
+        dd_series = equity / equity.cummax() - 1
 
-    dd_fig = create_drawdown_chart({"Equal Weight Portfolio": dd_series})
+        dd_fig = create_drawdown_chart({"Equal Weight Portfolio": dd_series})
 
-    # --- Rolling 30d Sharpe ---
-    window = 30
-    roll_mean = port_returns.rolling(window).mean()
-    roll_std = port_returns.rolling(window).std()
-    roll_sharpe = (roll_mean / roll_std) * np.sqrt(365)
-    roll_sharpe = roll_sharpe.dropna()
+        # --- Rolling 30d Sharpe ---
+        window = 30
+        roll_mean = port_returns.rolling(window).mean()
+        roll_std = port_returns.rolling(window).std()
+        roll_sharpe = (roll_mean / roll_std) * np.sqrt(365)
+        roll_sharpe = roll_sharpe.dropna()
 
-    sharpe_fig = go_.Figure()
-    sharpe_fig.add_trace(go_.Scatter(
-        x=roll_sharpe.index,
-        y=roll_sharpe.values,
-        mode="lines",
-        line=dict(color=COLORS["info"], width=1.5),
-        hovertemplate="%{y:.2f}<extra>Rolling Sharpe</extra>",
-    ))
-    sharpe_fig.add_hline(y=0, line_dash="dash", line_color=COLORS["text_muted"])
-    sharpe_fig.update_layout(**FIGURE_LAYOUT)
-    sharpe_fig.update_layout(
-        title="Rolling 30-Day Sharpe Ratio (Equal Weight)",
-        xaxis_title="Date",
-        yaxis_title="Sharpe Ratio",
-        height=350,
-        showlegend=False,
-    )
+        sharpe_fig = go_.Figure()
+        sharpe_fig.add_trace(go_.Scatter(
+            x=roll_sharpe.index,
+            y=roll_sharpe.values,
+            mode="lines",
+            line=dict(color=COLORS["info"], width=1.5),
+            hovertemplate="%{y:.2f}<extra>Rolling Sharpe</extra>",
+        ))
+        sharpe_fig.add_hline(y=0, line_dash="dash", line_color=COLORS["text_muted"])
+        sharpe_fig.update_layout(**FIGURE_LAYOUT)
+        sharpe_fig.update_layout(
+            title="Rolling 30-Day Sharpe Ratio (Equal Weight)",
+            xaxis_title="Date",
+            yaxis_title="Sharpe Ratio",
+            height=350,
+            showlegend=False,
+        )
 
-    # --- Rolling 30d volatility ---
-    roll_vol = roll_std * np.sqrt(365) * 100  # Annualized, in %
-    roll_vol = roll_vol.dropna()
+        # --- Rolling 30d volatility ---
+        roll_vol = roll_std * np.sqrt(365) * 100  # Annualized, in %
+        roll_vol = roll_vol.dropna()
 
-    vol_fig = go_.Figure()
-    vol_fig.add_trace(go_.Scatter(
-        x=roll_vol.index,
-        y=roll_vol.values,
-        mode="lines",
-        fill="tozeroy",
-        line=dict(color=COLORS["warning"], width=1.5),
-        fillcolor="rgba(243,156,18,0.2)",
-        hovertemplate="%{y:.1f}%<extra>Rolling Vol</extra>",
-    ))
-    vol_fig.update_layout(**FIGURE_LAYOUT)
-    vol_fig.update_layout(
-        title="Rolling 30-Day Annualized Volatility (Equal Weight)",
-        xaxis_title="Date",
-        yaxis_title="Volatility (%)",
-        height=350,
-        showlegend=False,
-    )
+        vol_fig = go_.Figure()
+        vol_fig.add_trace(go_.Scatter(
+            x=roll_vol.index,
+            y=roll_vol.values,
+            mode="lines",
+            fill="tozeroy",
+            line=dict(color=COLORS["warning"], width=1.5),
+            fillcolor="rgba(243,156,18,0.2)",
+            hovertemplate="%{y:.1f}%<extra>Rolling Vol</extra>",
+        ))
+        vol_fig.update_layout(**FIGURE_LAYOUT)
+        vol_fig.update_layout(
+            title="Rolling 30-Day Annualized Volatility (Equal Weight)",
+            xaxis_title="Date",
+            yaxis_title="Volatility (%)",
+            height=350,
+            showlegend=False,
+        )
 
-    return html.Div([
-        html.H4("Risk Dashboard", className="mb-3"),
+        return html.Div([
+            html.H4("Risk Dashboard", className="mb-3"),
 
-        dbc.Row([
-            dbc.Col(dcc.Graph(figure=corr_fig), md=6),
-            dbc.Col(dcc.Graph(figure=dd_fig), md=6),
-        ], className="mb-3"),
+            dbc.Row([
+                dbc.Col(dcc.Graph(figure=corr_fig), md=6),
+                dbc.Col(dcc.Graph(figure=dd_fig), md=6),
+            ], className="mb-3"),
 
-        dbc.Row([
-            dbc.Col(dcc.Graph(figure=sharpe_fig), md=6),
-            dbc.Col(dcc.Graph(figure=vol_fig), md=6),
-        ], className="mb-3"),
-    ])
+            dbc.Row([
+                dbc.Col(dcc.Graph(figure=sharpe_fig), md=6),
+                dbc.Col(dcc.Graph(figure=vol_fig), md=6),
+            ], className="mb-3"),
+        ])
+    except Exception as exc:
+        log.error("build_risk_tab_failed", error=str(exc), exc_info=True)
+        return html.Div(
+            dbc.Alert(f"Error building Risk Dashboard: {exc}", color="danger", dismissable=True),
+            className="mt-3",
+        )
 
 
 # ---------------------------------------------------------------------------

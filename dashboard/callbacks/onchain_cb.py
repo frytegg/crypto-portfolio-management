@@ -103,11 +103,12 @@ def update_onchain_tab(n_clicks: int | None) -> html.Div:
     try:
         onchain_data = fetch_onchain_data(force_refresh=force)
     except Exception as exc:
-        log.error("onchain_fetch_failed", error=str(exc))
+        log.error("onchain_fetch_failed", error=str(exc), exc_info=True)
         return html.Div(
             dbc.Alert(
                 f"Failed to fetch on-chain data: {exc}",
                 color="danger",
+                dismissable=True,
             ),
             className="mt-3",
         )
@@ -128,7 +129,7 @@ def update_onchain_tab(n_clicks: int | None) -> html.Div:
     try:
         signals = compute_onchain_signals(onchain_data)
     except Exception as exc:
-        log.error("onchain_signals_failed", error=str(exc))
+        log.error("onchain_signals_failed", error=str(exc), exc_info=True)
         signals = None
 
     # --- Charts ---

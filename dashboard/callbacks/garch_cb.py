@@ -106,34 +106,38 @@ def fit_garch_models(
 
     log.info("fitting_garch_all_assets", n_assets=len(returns_df.columns))
 
-    garch_results = fit_all_garch(returns_df)
+    try:
+        garch_results = fit_all_garch(returns_df)
 
-    # Serialize for dcc.Store — convert Series to JSON-friendly dicts
-    serialized: dict = {}
-    for asset, result in garch_results.items():
-        cond_vol = result["conditional_volatility"]
-        serialized[asset] = {
-            "conditional_volatility_values": cond_vol.values.tolist(),
-            "conditional_volatility_index": [
-                str(d) for d in cond_vol.index
-            ],
-            "forecast_variance": float(result["forecast_variance"]),
-            "forecast_vol": float(result["forecast_vol"]),
-            "params": {k: float(v) for k, v in result["params"].items()},
-            "aic": float(result["aic"]) if np.isfinite(result["aic"]) else None,
-            "bic": float(result["bic"]) if np.isfinite(result["bic"]) else None,
-            "error": result.get("error"),
-        }
+        # Serialize for dcc.Store — convert Series to JSON-friendly dicts
+        serialized: dict = {}
+        for asset, result in garch_results.items():
+            cond_vol = result["conditional_volatility"]
+            serialized[asset] = {
+                "conditional_volatility_values": cond_vol.values.tolist(),
+                "conditional_volatility_index": [
+                    str(d) for d in cond_vol.index
+                ],
+                "forecast_variance": float(result["forecast_variance"]),
+                "forecast_vol": float(result["forecast_vol"]),
+                "params": {k: float(v) for k, v in result["params"].items()},
+                "aic": float(result["aic"]) if np.isfinite(result["aic"]) else None,
+                "bic": float(result["bic"]) if np.isfinite(result["bic"]) else None,
+                "error": result.get("error"),
+            }
 
-    n_success = sum(1 for r in serialized.values() if r.get("error") is None)
-    badge = dbc.Badge(
-        f"Fitted {n_success}/{len(serialized)} assets",
-        color="success" if n_success == len(serialized) else "warning",
-        className="fs-6",
-    )
+        n_success = sum(1 for r in serialized.values() if r.get("error") is None)
+        badge = dbc.Badge(
+            f"Fitted {n_success}/{len(serialized)} assets",
+            color="success" if n_success == len(serialized) else "warning",
+            className="fs-6",
+        )
 
-    log.info("garch_fitting_complete", n_success=n_success, n_total=len(serialized))
-    return serialized, badge
+        log.info("garch_fitting_complete", n_success=n_success, n_total=len(serialized))
+        return serialized, badge
+    except Exception as exc:
+        log.error("fit_garch_models_failed", error=str(exc), exc_info=True)
+        return no_update, dbc.Alert(f"GARCH fitting failed: {exc}", color="danger", dismissable=True)
 
 
 # ---------------------------------------------------------------------------
@@ -164,52 +168,59 @@ def render_garch_asset(
             html.P(f"No GARCH data for {selected_asset}.", className="text-muted")
         )
 
-    # Deserialize the selected asset's result
-    asset_data = garch_data[selected_asset]
-    garch_result = _deserialize_garch_result(asset_data)
+    try:
+        # Deserialize the selected asset's result
+        asset_data = garch_data[selected_asset]
+        garch_result = _deserialize_garch_result(asset_data)
 
-    # Get prices from cache for the overlay
-    prices_df: pd.DataFrame | None = cache.get("prices")
-    prices = pd.Series(dtype=float)
-    if prices_df is not None and selected_asset in prices_df.columns:
-        prices = prices_df[selected_asset]
+        # Get prices from cache for the overlay
+        prices_df: pd.DataFrame | None = cache.get("prices")
+        prices = pd.Series(dtype=float)
+        if prices_df is not None and selected_asset in prices_df.columns:
+            prices = prices_df[selected_asset]
 
-    # 1. Conditional volatility chart
-    vol_chart = create_garch_vol_chart(selected_asset, garch_result, prices)
+        # 1. Conditional volatility chart
+        vol_chart = create_garch_vol_chart(selected_asset, garch_result, prices)
 
-    # 2. Forecast card
-    forecast_vol = asset_data["forecast_vol"]
-    forecast_card = create_metric_card(
-        "1-Day Forecast Vol",
-        f"{forecast_vol:.4f}",
-        subtitle=f"Annualized: {forecast_vol * np.sqrt(365):.2%}",
-        color="danger",
-    )
+        # 2. Forecast card
+        forecast_vol = asset_data["forecast_vol"]
+        forecast_card = create_metric_card(
+            "1-Day Forecast Vol",
+            f"{forecast_vol:.4f}",
+            subtitle=f"Annualized: {forecast_vol * np.sqrt(365):.2%}",
+            color="danger",
+        )
 
-    # 3. Params table
-    params_table = _build_params_table(asset_data)
+        # 3. Params table
+        params_table = _build_params_table(asset_data)
 
-    # 4. Volatility heatmap (all assets)
-    all_garch_results = {
-        asset: _deserialize_garch_result(data)
-        for asset, data in garch_data.items()
-    }
-    heatmap = create_vol_heatmap(all_garch_results)
+        # 4. Volatility heatmap (all assets)
+        all_garch_results = {
+            asset: _deserialize_garch_result(data)
+            for asset, data in garch_data.items()
+        }
+        heatmap = create_vol_heatmap(all_garch_results)
 
-    return html.Div([
-        # Chart + cards row
-        dbc.Row([
-            dbc.Col(dcc.Graph(figure=vol_chart, config={"displayModeBar": False}), md=8),
-            dbc.Col([forecast_card, params_table], md=4),
-        ], className="mb-4"),
-        # Heatmap
-        dbc.Row([
-            dbc.Col(
-                dcc.Graph(figure=heatmap, config={"displayModeBar": False}),
-                md=12,
-            ),
-        ]),
-    ])
+        return html.Div([
+            # Chart + cards row
+            dbc.Row([
+                dbc.Col(dcc.Graph(figure=vol_chart, config={"displayModeBar": False}), md=8),
+                dbc.Col([forecast_card, params_table], md=4),
+            ], className="mb-4"),
+            # Heatmap
+            dbc.Row([
+                dbc.Col(
+                    dcc.Graph(figure=heatmap, config={"displayModeBar": False}),
+                    md=12,
+                ),
+            ]),
+        ])
+    except Exception as exc:
+        log.error("render_garch_asset_failed", asset=selected_asset, error=str(exc), exc_info=True)
+        return html.Div(
+            dbc.Alert(f"Error rendering GARCH for {selected_asset}: {exc}", color="danger", dismissable=True),
+            className="mt-3",
+        )
 
 
 # ---------------------------------------------------------------------------

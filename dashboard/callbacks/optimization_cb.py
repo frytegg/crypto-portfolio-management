@@ -161,7 +161,7 @@ def compute_frontier(
         )
         fig = create_efficient_frontier_figure(frontier_data)
     except Exception as exc:
-        log.error("frontier_computation_failed", error=str(exc))
+        log.error("frontier_computation_failed", error=str(exc), exc_info=True)
         fig = go.Figure()
         fig.update_layout(**FIGURE_LAYOUT, title=f"Frontier failed: {exc}")
 
@@ -285,79 +285,91 @@ def run_all_strategies(
 def render_strategy_results(store_data: dict | None) -> html.Div:
     """Render all strategy comparison visualizations from store data."""
     if not store_data:
-        return html.Div(
-            html.P(
-                "Click 'Run All Strategies' to optimize.",
-                className="text-muted text-center mt-4",
+        # Check for pre-cached equal_weight from startup
+        precached = cache.get("precached_equal_weight")
+        if precached:
+            store_data = {"equal_weight": precached}
+        else:
+            return html.Div(
+                html.P(
+                    "Click 'Run All Strategies' to optimize.",
+                    className="text-muted text-center mt-4",
+                )
             )
+
+    try:
+        returns_df: pd.DataFrame | None = cache.get("returns")
+
+        # Deserialize weights
+        all_weights: dict[str, pd.Series] = {}
+        for name, data in store_data.items():
+            w = pd.Series(data["weights"])
+            w.name = "weights"
+            all_weights[name] = w
+
+        # --- A. Weights comparison bar chart ---
+        weights_chart = create_weights_bar(all_weights)
+
+        # --- B. Individual weights bar charts (first 4 strategies) ---
+        individual_charts = []
+        for name, w in list(all_weights.items())[:4]:
+            display_name = data.get("name", name) if (data := store_data.get(name)) else name
+            chart = create_weights_bar_chart(w, title=f"{display_name}")
+            individual_charts.append(
+                dbc.Col(dcc.Graph(figure=chart, config={"displayModeBar": False}), md=6)
+            )
+
+        # --- C. Equity curves ---
+        equity_fig = go.Figure()
+        if returns_df is not None:
+            equity_curves: dict[str, pd.Series] = {}
+            for name, w in all_weights.items():
+                # Align weights with returns columns
+                common = returns_df.columns.intersection(w.index)
+                if len(common) == 0:
+                    continue
+                w_aligned = w.reindex(common).fillna(0)
+                w_aligned = w_aligned / w_aligned.sum()  # renormalize
+                port_ret = (returns_df[common] * w_aligned).sum(axis=1)
+                equity = (1 + port_ret).cumprod()
+                equity_curves[name] = equity
+
+            if equity_curves:
+                equity_fig = create_equity_chart(equity_curves)
+
+        # --- D. Strategy weights heatmap ---
+        heatmap_fig = _create_weights_heatmap(all_weights)
+
+        # --- E. Comparison table ---
+        metrics_table = _build_metrics_table(store_data)
+
+        return html.Div([
+            # Comparison table
+            html.H5("Strategy Comparison", className="mt-3 mb-2"),
+            metrics_table,
+
+            # Grouped weights chart
+            html.H5("Weight Comparison", className="mt-4 mb-2"),
+            dcc.Graph(figure=weights_chart, config={"displayModeBar": False}),
+
+            # Equity curves
+            html.H5("Equity Curves", className="mt-4 mb-2"),
+            dcc.Graph(figure=equity_fig, config={"displayModeBar": False}),
+
+            # Individual weight charts
+            html.H5("Individual Allocations", className="mt-4 mb-2"),
+            dbc.Row(individual_charts),
+
+            # Weights heatmap
+            html.H5("Weight Heatmap", className="mt-4 mb-2"),
+            dcc.Graph(figure=heatmap_fig, config={"displayModeBar": False}),
+        ])
+    except Exception as exc:
+        log.error("render_strategy_results_failed", error=str(exc), exc_info=True)
+        return html.Div(
+            dbc.Alert(f"Error rendering strategy results: {exc}", color="danger", dismissable=True),
+            className="mt-3",
         )
-
-    returns_df: pd.DataFrame | None = cache.get("returns")
-
-    # Deserialize weights
-    all_weights: dict[str, pd.Series] = {}
-    for name, data in store_data.items():
-        w = pd.Series(data["weights"])
-        w.name = "weights"
-        all_weights[name] = w
-
-    # --- A. Weights comparison bar chart ---
-    weights_chart = create_weights_bar(all_weights)
-
-    # --- B. Individual weights bar charts (first 4 strategies) ---
-    individual_charts = []
-    for name, w in list(all_weights.items())[:4]:
-        display_name = data.get("name", name) if (data := store_data.get(name)) else name
-        chart = create_weights_bar_chart(w, title=f"{display_name}")
-        individual_charts.append(
-            dbc.Col(dcc.Graph(figure=chart, config={"displayModeBar": False}), md=6)
-        )
-
-    # --- C. Equity curves ---
-    equity_fig = go.Figure()
-    if returns_df is not None:
-        equity_curves: dict[str, pd.Series] = {}
-        for name, w in all_weights.items():
-            # Align weights with returns columns
-            common = returns_df.columns.intersection(w.index)
-            if len(common) == 0:
-                continue
-            w_aligned = w.reindex(common).fillna(0)
-            w_aligned = w_aligned / w_aligned.sum()  # renormalize
-            port_ret = (returns_df[common] * w_aligned).sum(axis=1)
-            equity = (1 + port_ret).cumprod()
-            equity_curves[name] = equity
-
-        if equity_curves:
-            equity_fig = create_equity_chart(equity_curves)
-
-    # --- D. Strategy weights heatmap ---
-    heatmap_fig = _create_weights_heatmap(all_weights)
-
-    # --- E. Comparison table ---
-    metrics_table = _build_metrics_table(store_data)
-
-    return html.Div([
-        # Comparison table
-        html.H5("Strategy Comparison", className="mt-3 mb-2"),
-        metrics_table,
-
-        # Grouped weights chart
-        html.H5("Weight Comparison", className="mt-4 mb-2"),
-        dcc.Graph(figure=weights_chart, config={"displayModeBar": False}),
-
-        # Equity curves
-        html.H5("Equity Curves", className="mt-4 mb-2"),
-        dcc.Graph(figure=equity_fig, config={"displayModeBar": False}),
-
-        # Individual weight charts
-        html.H5("Individual Allocations", className="mt-4 mb-2"),
-        dbc.Row(individual_charts),
-
-        # Weights heatmap
-        html.H5("Weight Heatmap", className="mt-4 mb-2"),
-        dcc.Graph(figure=heatmap_fig, config={"displayModeBar": False}),
-    ])
 
 
 # ---------------------------------------------------------------------------
