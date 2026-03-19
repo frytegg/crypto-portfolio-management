@@ -214,3 +214,93 @@ class TestEdgeCases:
         assert m["max_drawdown"] < 0
         assert m["positive_days_pct"] == 0.0
         assert m["omega_ratio"] == 0.0  # no positive returns, pos_sum=0
+
+
+# ---------------------------------------------------------------------------
+# Test: all 17 metric keys present
+# ---------------------------------------------------------------------------
+
+class TestAllMetricKeysPresent:
+    """compute_risk_metrics must return exactly the expected 17 scalar keys
+    plus equity_curve and drawdown_series."""
+
+    EXPECTED_SCALAR_KEYS = {
+        "annualized_return",
+        "annualized_volatility",
+        "sharpe_ratio",
+        "sortino_ratio",
+        "calmar_ratio",
+        "omega_ratio",
+        "max_drawdown",
+        "max_drawdown_duration",
+        "var_95",
+        "cvar_95",
+        "var_99",
+        "cvar_99",
+        "skewness",
+        "kurtosis",
+        "positive_days_pct",
+        "best_day",
+        "worst_day",
+    }
+
+    EXPECTED_SERIES_KEYS = {"equity_curve", "drawdown_series"}
+
+    def test_all_keys_present(self, known_returns: pd.Series) -> None:
+        m = compute_risk_metrics(known_returns)
+        all_expected = self.EXPECTED_SCALAR_KEYS | self.EXPECTED_SERIES_KEYS
+        assert set(m.keys()) == all_expected, (
+            f"Missing: {all_expected - set(m.keys())}, "
+            f"Extra: {set(m.keys()) - all_expected}"
+        )
+
+    def test_all_keys_present_on_empty(self) -> None:
+        m = compute_risk_metrics(pd.Series(dtype=float))
+        all_expected = self.EXPECTED_SCALAR_KEYS | self.EXPECTED_SERIES_KEYS
+        assert set(m.keys()) == all_expected
+
+
+# ---------------------------------------------------------------------------
+# Test: drawdown_series always <= 0
+# ---------------------------------------------------------------------------
+
+class TestDrawdownSeriesInvariant:
+    """Drawdown series must always be <= 0 (by definition: equity/peak - 1)."""
+
+    def test_drawdown_leq_zero_known(self, known_returns: pd.Series) -> None:
+        m = compute_risk_metrics(known_returns)
+        assert (m["drawdown_series"] <= 1e-12).all(), (
+            f"Max drawdown value: {m['drawdown_series'].max()}"
+        )
+
+    def test_drawdown_leq_zero_random(self, sample_returns: pd.DataFrame) -> None:
+        """Test on a realistic random series (BTC column from sample_returns)."""
+        btc = sample_returns["BTC"]
+        m = compute_risk_metrics(btc)
+        assert (m["drawdown_series"] <= 1e-12).all()
+
+    def test_drawdown_leq_zero_positive_only(self, positive_returns: pd.Series) -> None:
+        m = compute_risk_metrics(positive_returns)
+        assert (m["drawdown_series"] <= 1e-12).all()
+
+
+# ---------------------------------------------------------------------------
+# Test: equity_curve always positive
+# ---------------------------------------------------------------------------
+
+class TestEquityCurvePositive:
+    """Equity curve = cumprod(1+r) must always be > 0 for any finite returns."""
+
+    def test_equity_curve_positive_known(self, known_returns: pd.Series) -> None:
+        m = compute_risk_metrics(known_returns)
+        assert (m["equity_curve"] > 0).all()
+
+    def test_equity_curve_positive_random(self, sample_returns: pd.DataFrame) -> None:
+        btc = sample_returns["BTC"]
+        m = compute_risk_metrics(btc)
+        assert (m["equity_curve"] > 0).all()
+
+    def test_equity_curve_positive_all_negative(self) -> None:
+        rets = pd.Series([-0.01, -0.02, -0.01, -0.03, -0.01])
+        m = compute_risk_metrics(rets)
+        assert (m["equity_curve"] > 0).all()

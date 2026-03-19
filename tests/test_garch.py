@@ -151,3 +151,22 @@ class TestBuildGarchCovariance:
         n = sample_returns.shape[1]
         assert cov.shape == (n, n)
         np.testing.assert_allclose(cov.values, cov.values.T, atol=1e-12)
+
+    def test_diagonal_equals_squared_forecast_vols(
+        self, sample_returns: pd.DataFrame
+    ) -> None:
+        """Diagonal of GARCH covariance = forecast_vol^2 for each asset.
+
+        Since cov = D @ R @ D where D = diag(sigma) and R has 1s on diagonal,
+        the diagonal of the covariance matrix must be sigma_i^2.
+        """
+        garch_results = fit_all_garch(sample_returns)
+        cov = build_garch_covariance(sample_returns, garch_results=garch_results)
+
+        expected_diag = np.array([
+            garch_results[col]["forecast_vol"] ** 2
+            for col in sample_returns.columns
+        ])
+        actual_diag = np.diag(cov.values)
+
+        np.testing.assert_allclose(actual_diag, expected_diag, rtol=1e-10)
