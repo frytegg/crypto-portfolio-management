@@ -143,8 +143,16 @@ def update_live_prices(
 
 
 def _build_staleness_badge() -> html.Div:
-    """Build a badge showing last cache update time and staleness warning."""
+    """Build a status indicator showing WebSocket state and last update time.
+
+    - Green dot + "Live" when WebSocket is connected (cache key "ws_connected")
+    - Yellow dot + "Cached" when using cached prices
+    - "Prices as of: HH:MM UTC" timestamp
+    - Red warning if data is stale (>6h)
+    """
+    ws_connected = cache.get("ws_connected") is True
     updated_at_str = cache.get("meta:data_updated_at")
+
     if not updated_at_str:
         return html.Div(
             dbc.Badge("No data loaded", color="secondary", className="p-2"),
@@ -154,32 +162,48 @@ def _build_staleness_badge() -> html.Div:
         updated_at = datetime.fromisoformat(updated_at_str)
         now = datetime.now(timezone.utc)
         age_seconds = (now - updated_at).total_seconds()
-        age_minutes = int(age_seconds // 60)
 
-        if age_minutes < 60:
-            age_text = f"{age_minutes}m ago"
+        # Format timestamp as HH:MM UTC
+        time_str = updated_at.strftime("%H:%M UTC")
+
+        # Connection status dot + label
+        if ws_connected:
+            dot_color = COLORS["success"]
+            status_label = "Live"
         else:
-            age_hours = age_minutes // 60
-            age_text = f"{age_hours}h {age_minutes % 60}m ago"
+            dot_color = COLORS["warning"]
+            status_label = "Cached"
 
-        if age_seconds > _STALE_THRESHOLD_SECONDS:
-            return html.Div([
-                dbc.Badge(
-                    f"Data may be stale",
-                    color="warning",
-                    className="p-2 me-2",
-                ),
-                html.Small(
-                    f"Last update: {age_text}",
-                    className="text-muted",
-                ),
-            ])
-
-        return html.Div(
-            html.Small(
-                f"Data updated: {age_text}",
-                style={"color": COLORS["success"], "fontSize": "0.85em"},
-            ),
+        status_dot = html.Span(
+            "\u25CF ",
+            style={"color": dot_color, "fontSize": "0.9em"},
         )
+
+        children = [
+            status_dot,
+            html.Span(
+                status_label,
+                style={"color": dot_color, "fontWeight": "bold", "fontSize": "0.85em"},
+            ),
+            html.Span(
+                f"  \u2022  Prices as of: {time_str}",
+                style={"color": COLORS["text_muted"], "fontSize": "0.85em"},
+            ),
+        ]
+
+        # Add stale warning
+        if age_seconds > _STALE_THRESHOLD_SECONDS:
+            age_hours = int(age_seconds // 3600)
+            children.append(
+                dbc.Badge(
+                    f"Stale ({age_hours}h)",
+                    color="warning",
+                    className="ms-2 p-1",
+                    style={"fontSize": "0.75em"},
+                ),
+            )
+
+        return html.Div(children, style={"display": "inline-flex", "alignItems": "center"})
+
     except (ValueError, TypeError):
         return html.Div()

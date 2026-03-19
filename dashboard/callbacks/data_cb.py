@@ -309,7 +309,7 @@ def _build_market_treemap(universe: list[UniverseAsset]) -> dcc.Graph:
             parents=[""] * len(universe),
             marker=dict(
                 colors=changes,
-                colorscale=[[0, "red"], [0.5, "gray"], [1, "green"]],
+                colorscale=[[0, COLORS["danger"]], [0.5, COLORS["text_muted"]], [1, COLORS["success"]]],
                 cmid=0,
                 colorbar=dict(title="24h %", thickness=15),
                 line=dict(width=1, color=COLORS["bg"]),
@@ -609,6 +609,7 @@ def _build_live_tab(universe_data: list[dict] | None) -> html.Div:
         bordered=True,
         dark=True,
         hover=True,
+        responsive=True,
         striped=True,
         className="mt-3",
     )

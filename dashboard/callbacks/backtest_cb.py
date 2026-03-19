@@ -465,6 +465,7 @@ def _build_metrics_table(metrics: dict) -> dbc.Card:
                 bordered=True,
                 dark=True,
                 hover=True,
+                responsive=True,
                 size="sm",
                 className="mb-0",
             ),

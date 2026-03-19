@@ -276,6 +276,7 @@ def _build_params_table(asset_data: dict) -> dbc.Card:
                 [html.Tbody(rows)],
                 bordered=True,
                 hover=True,
+                responsive=True,
                 color="dark",
                 size="sm",
                 className="mb-0",

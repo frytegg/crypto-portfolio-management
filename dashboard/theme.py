@@ -27,24 +27,46 @@ COLORS = {
     "grid": "#333333",
 }
 
-# Strategy colors — consistent across all charts
+# Strategy colors — keyed by internal name (used in backtest, equity_chart)
 STRATEGY_COLORS: dict[str, str] = {
-    "equal_weight": "#95a5a6",
-    "markowitz": "#3498db",
-    "garch_gmv": "#e74c3c",
-    "hrp": "#2ecc71",
-    "risk_parity": "#f39c12",
-    "cvar": "#9b59b6",
-    "black_litterman": "#1abc9c",
-    "regime_aware": "#e67e22",
+    "equal_weight": "#888888",
+    "markowitz": "#00d4ff",
+    "garch_gmv": "#ff6b35",
+    "hrp": "#7bed9f",
+    "risk_parity": "#ffa502",
+    "cvar": "#ff4757",
+    "black_litterman": "#eccc68",
+    "regime_aware": "#a29bfe",
 }
+
+# Strategy colors — keyed by display name (used in comparison table, weights chart)
+STRATEGY_DISPLAY_COLORS: dict[str, str] = {
+    "Equal Weight":      "#888888",
+    "Markowitz MVO":     "#00d4ff",
+    "GARCH-GMV":         "#ff6b35",
+    "Hierarchical Risk Parity": "#7bed9f",
+    "Equal Risk Contribution":  "#ffa502",
+    "Mean-CVaR":         "#ff4757",
+    "Black-Litterman":   "#eccc68",
+    "Black-Litterman (Fallback: Markowitz)": "#eccc68",
+    "Regime-Aware":      "#a29bfe",
+}
+
+
+
+def hex_to_rgba(hex_color: str, alpha: float = 1.0) -> str:
+    """Convert hex color to rgba() string for semi-transparent fills."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
 
 # Plotly figure layout defaults — apply to every figure
 FIGURE_LAYOUT: dict = {
     "template": "plotly_dark",
-    "paper_bgcolor": COLORS["bg"],
-    "plot_bgcolor": COLORS["bg"],
-    "font": {"color": COLORS["text"], "family": "Inter, -apple-system, sans-serif"},
+    "paper_bgcolor": "rgba(0,0,0,0)",
+    "plot_bgcolor": "rgba(0,0,0,0)",
+    "font": {"color": "#AAAAAA", "family": "Inter, -apple-system, sans-serif"},
     "margin": {"l": 60, "r": 30, "t": 50, "b": 50},
     "xaxis": {"gridcolor": COLORS["grid"], "zerolinecolor": COLORS["grid"]},
     "yaxis": {"gridcolor": COLORS["grid"], "zerolinecolor": COLORS["grid"]},

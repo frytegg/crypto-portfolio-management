@@ -125,6 +125,7 @@ class BinancePriceFeed:
     def _on_close(self, ws: object, close_status_code: int | None = None, close_msg: str | None = None) -> None:
         """Log disconnect, set connected flag to False."""
         self._connected = False
+        self._cache.set("ws_connected", False)
         log.info(
             "ws_disconnected",
             status_code=close_status_code,
@@ -134,4 +135,5 @@ class BinancePriceFeed:
     def _on_open(self, ws: object) -> None:
         """Log connection established, reset backoff counter."""
         self._connected = True
+        self._cache.set("ws_connected", True)
         log.info("ws_connected", n_streams=len(self._symbols))

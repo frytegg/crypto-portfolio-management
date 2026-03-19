@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
-from dashboard.theme import COLORS, FIGURE_LAYOUT, STRATEGY_COLORS
+from dashboard.theme import COLORS, FIGURE_LAYOUT, STRATEGY_COLORS, hex_to_rgba
 
 
 def create_drawdown_chart(drawdowns: dict[str, pd.Series]) -> go.Figure:
@@ -33,7 +33,7 @@ def create_drawdown_chart(drawdowns: dict[str, pd.Series]) -> go.Figure:
             name=name,
             line=dict(color=color if not is_single else COLORS["danger"], width=1.5),
             fill="tozeroy" if is_single else None,
-            fillcolor="rgba(255,0,0,0.3)" if is_single else None,
+            fillcolor=hex_to_rgba(COLORS["danger"], 0.3) if is_single else None,
             hovertemplate="%{y:.2f}%<extra>" + name + "</extra>",
         ))
 
