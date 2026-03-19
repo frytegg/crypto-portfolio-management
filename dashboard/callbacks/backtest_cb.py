@@ -219,9 +219,9 @@ def run_backtest_callback(
     try:
         result = run_backtest(prices, config)
     except Exception as exc:
-        log.exception("backtest_failed")
+        log.error("backtest_failed", strategy=strategy, error=str(exc), exc_info=True)
         return (
-            html.Div(dbc.Alert(f"Backtest failed: {exc}", color="danger")),
+            html.Div(dbc.Alert(f"Backtest failed: {exc}", color="danger", dismissable=True)),
             dbc.Badge("Failed", color="danger"),
         )
 

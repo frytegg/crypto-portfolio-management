@@ -10,20 +10,34 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 
+# DARKLY-themed accent color for loading spinners
+_LOADING_COLOR = "#00d4ff"
+
+
 def create_layout() -> dbc.Container:
     """Build the top-level Dash layout. Called once in app.py."""
     return dbc.Container(
         fluid=True,
         className="p-3",
         children=[
-            # Header
+            # Header with staleness indicator
             dbc.Row(
-                dbc.Col(
-                    html.H2(
-                        "Crypto Portfolio Management",
-                        className="text-center my-3",
+                [
+                    dbc.Col(
+                        html.H2(
+                            "Crypto Portfolio Management",
+                            className="text-center my-3",
+                        ),
+                        md=8,
                     ),
-                ),
+                    dbc.Col(
+                        html.Div(
+                            id="data-staleness-indicator",
+                            className="text-end mt-3",
+                        ),
+                        md=4,
+                    ),
+                ],
             ),
             # Live price update interval (every 5 seconds)
             dcc.Interval(id="live-interval", interval=5_000, n_intervals=0),
@@ -51,7 +65,12 @@ def create_layout() -> dbc.Container:
                     dbc.Tab(label="Report", tab_id="tab-report"),
                 ],
             ),
-            # Tab content container
-            html.Div(id="tab-content", className="mt-3"),
+            # Tab content container wrapped in loading spinner
+            dcc.Loading(
+                id="loading-tab-content",
+                type="circle",
+                color=_LOADING_COLOR,
+                children=html.Div(id="tab-content", className="mt-3"),
+            ),
         ],
     )
