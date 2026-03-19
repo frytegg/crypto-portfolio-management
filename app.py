@@ -48,20 +48,23 @@ log.info(
     ws_enabled=settings.BINANCE_WS_ENABLED,
 )
 
-# TODO: Uncomment after implementing data layer
-# from core.data.universe import fetch_universe
-# from core.data.fetcher import fetch_historical_data
-# from core.data.onchain import fetch_onchain_data
-# from core.data.price_feed import BinancePriceFeed
-#
-# universe = fetch_universe()
-# fetch_historical_data(universe)
-# fetch_onchain_data()
-#
-# if settings.BINANCE_WS_ENABLED:
-#     symbols = [a.binance_symbol for a in universe if a.binance_symbol]
-#     price_feed = BinancePriceFeed(cache, symbols)
-#     price_feed.start()
+from core.data.universe import fetch_universe
+from core.data.fetcher import fetch_historical_data
+from core.data.price_feed import BinancePriceFeed
+
+try:
+    universe = fetch_universe()
+    fetch_historical_data(universe)
+except Exception as exc:
+    log.error("startup_data_fetch_failed", error=str(exc))
+    universe = []
+
+if settings.BINANCE_WS_ENABLED and universe:
+    binance_symbols = [a.binance_symbol for a in universe if a.binance_symbol]
+    price_feed = BinancePriceFeed(cache, binance_symbols)
+    price_feed.start()
+else:
+    log.info("price_feed_skipped", ws_enabled=settings.BINANCE_WS_ENABLED, universe_size=len(universe))
 
 if __name__ == "__main__":
     app.run(debug=settings.APP_DEBUG, port=settings.PORT)
