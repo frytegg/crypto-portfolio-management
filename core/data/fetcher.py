@@ -24,6 +24,10 @@ from core.data.universe import UniverseAsset
 
 log = structlog.get_logger(__name__)
 
+# Use a browser-like User-Agent to avoid 403 blocks in cloud environments
+_yf_session = requests.Session()
+_yf_session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"})
+
 _MIN_OBSERVATIONS = 180
 _MAX_NAN_RATIO = 0.20
 _FFILL_LIMIT = 5
@@ -78,17 +82,27 @@ def _fetch_and_clean(
     prices = _fetch_yfinance(yf_tickers, start_str, end_str)
 
     # Rename columns from yfinance tickers ("BTC-USD") to display symbols ("BTC")
-    prices = prices.rename(columns=ticker_to_display)
+    yf_total_failure = prices.empty
+    if not yf_total_failure:
+        prices = prices.rename(columns=ticker_to_display)
 
     # Identify failed assets (all NaN or missing columns)
+    # If yfinance returned nothing, ALL assets are considered failed
     failed_tickers: list[str] = []
     for asset in universe:
         display = get_display_symbol(asset.coingecko_id)
-        if display not in prices.columns or prices[display].isna().all():
+        if yf_total_failure or display not in prices.columns or prices[display].isna().all():
             failed_tickers.append(display)
+
+    if yf_total_failure:
+        log.warning(
+            "yfinance_total_failure",
+            msg=f"Attempting Binance REST fallback for all {len(failed_tickers)} assets",
+        )
 
     # Fallback: Binance REST for failed assets
     binance_fallback_count = 0
+    binance_series_list: list[pd.Series] = []
     for asset in universe:
         display = get_display_symbol(asset.coingecko_id)
         if display not in failed_tickers:
@@ -104,17 +118,28 @@ def _fetch_and_clean(
         try:
             series = _fetch_binance_rest(asset.binance_symbol, limit=lookback_days)
             if series is not None and len(series) > 0:
-                # Reindex Binance data to match existing DataFrame dates.
-                # Binance returns calendar days; yfinance uses business days.
-                # Reindex + ffill bridges the weekend gaps.
-                aligned = series.reindex(prices.index, method="ffill")
-                if display in prices.columns:
-                    prices = prices.drop(columns=[display])
-                prices[display] = aligned
+                series.name = display
+                if prices.empty:
+                    # No yfinance index to align to — collect and merge later
+                    binance_series_list.append(series)
+                else:
+                    # Reindex Binance data to match existing DataFrame dates.
+                    # Binance returns calendar days; yfinance uses business days.
+                    # Reindex + ffill bridges the weekend gaps.
+                    aligned = series.reindex(prices.index, method="ffill")
+                    if display in prices.columns:
+                        prices = prices.drop(columns=[display])
+                    prices[display] = aligned
                 binance_fallback_count += 1
                 log.info("binance_fallback_success", asset=display, rows=len(series))
         except Exception as exc:
             log.error("binance_fallback_failed", asset=display, error=str(exc))
+
+    # If yfinance failed entirely, build prices DataFrame from Binance series
+    if prices.empty and binance_series_list:
+        prices = pd.concat(binance_series_list, axis=1).sort_index()
+        prices = prices.ffill(limit=_FFILL_LIMIT)
+        log.info("binance_only_prices_built", assets=len(prices.columns), rows=len(prices))
 
     initial_asset_count = len(prices.columns)
 
@@ -142,25 +167,40 @@ def _fetch_yfinance(tickers: list[str], start: str, end: str) -> pd.DataFrame:
 
     Returns a DataFrame with DatetimeIndex and columns = yfinance ticker names.
     Missing/failed tickers will have NaN columns.
+    Returns an empty DataFrame on total failure (caller should fall back to Binance).
     """
     if not tickers:
         return pd.DataFrame()
 
     log.info("yfinance_download_start", tickers=len(tickers), start=start, end=end)
 
-    raw = yf.download(
-        tickers=tickers,
-        start=start,
-        end=end,
-        interval="1d",
-        auto_adjust=False,
-        progress=False,
-        group_by="column",
-        threads=True,
-    )
+    try:
+        raw = yf.download(
+            tickers=tickers,
+            start=start,
+            end=end,
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+            group_by="column",
+            threads=True,
+            session=_yf_session,
+        )
+    except Exception as exc:
+        log.error(
+            "yfinance_download_failed",
+            error=str(exc),
+            tickers=len(tickers),
+            msg="Falling back to Binance REST for all assets",
+        )
+        return pd.DataFrame()
 
     if raw.empty:
-        log.warn("yfinance_download_empty", tickers=len(tickers))
+        log.error(
+            "yfinance_download_empty",
+            tickers=len(tickers),
+            msg="yfinance returned empty DataFrame — falling back to Binance REST for all assets",
+        )
         return pd.DataFrame()
 
     # yfinance returns MultiIndex columns when group_by="column" and multiple tickers
@@ -172,7 +212,7 @@ def _fetch_yfinance(tickers: list[str], start: str, end: str) -> pd.DataFrame:
         prices = raw[["Close"]]
         prices.columns = tickers[:1]
     else:
-        log.warn("yfinance_unexpected_format", columns=list(raw.columns[:10]))
+        log.error("yfinance_unexpected_format", columns=list(raw.columns[:10]))
         return pd.DataFrame()
 
     # Ensure the index is a clean DatetimeIndex (no timezone)
