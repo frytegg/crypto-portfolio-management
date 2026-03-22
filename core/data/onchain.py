@@ -85,7 +85,9 @@ def _fetch_stablecoin_mcap() -> pd.Series:
     dates = []
     values = []
     for entry in data:
-        dates.append(pd.Timestamp.utcfromtimestamp(entry["date"]))
+        raw_date = entry["date"]
+        ts = int(raw_date) if isinstance(raw_date, str) else raw_date
+        dates.append(pd.Timestamp.utcfromtimestamp(ts))
         circulating = entry.get("totalCirculating", {})
         total = sum(circulating.values())
         values.append(total)

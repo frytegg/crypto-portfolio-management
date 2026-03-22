@@ -1,7 +1,8 @@
 """Live price feed callbacks — fires every 5 seconds via dcc.Interval.
 
-Reads price:{SYMBOL} from diskcache for top-10 assets and updates the live
-price row in the Market Overview tab header. Does NOT trigger any other callback.
+Reads price:{SYMBOL} from diskcache for top-10 assets and updates individual
+live-price-ticker divs in the layout header. The live-price-row sits OUTSIDE
+dcc.Loading to avoid full-page flicker on each interval tick.
 
 Also updates the data staleness indicator in the layout header.
 """
@@ -10,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import dash_bootstrap_components as dbc
-from dash import Input, Output, State, callback, html, no_update
+from dash import Input, Output, State, callback, ctx, html, no_update
 import structlog
 
 from core.data.cache import cache, get_live_price
@@ -21,6 +22,10 @@ log = structlog.get_logger(__name__)
 
 # Staleness threshold — data older than 6 hours triggers a warning badge
 _STALE_THRESHOLD_SECONDS = 6 * 3600
+
+# Module-level price snapshot from last tick — {symbol: (price, pct_change, is_live)}
+# Used to skip DOM updates when nothing changed.
+_last_prices: dict[str, tuple[float, float, bool]] = {}
 
 
 def _fmt_price(price: float) -> str:
@@ -44,12 +49,66 @@ def _pct_color(value: float) -> str:
     return COLORS["text_muted"]
 
 
+def _build_badge(asset: UniverseAsset, price: float, pct_change: float, is_live: bool) -> dbc.Col:
+    """Build a single price badge column."""
+    color = _pct_color(pct_change)
+    return dbc.Col(
+        html.Div(
+            [
+                html.Span(
+                    asset.symbol,
+                    style={"fontWeight": "bold", "marginRight": "4px"},
+                ),
+                html.Span(
+                    _fmt_price(price),
+                    style={"marginRight": "4px"},
+                ),
+                html.Span(
+                    _fmt_pct(pct_change),
+                    style={"color": color, "fontSize": "0.85em"},
+                ),
+                html.Span(
+                    " \u25CF" if is_live else "",
+                    style={
+                        "color": COLORS["success"],
+                        "fontSize": "0.6em",
+                        "verticalAlign": "super",
+                    },
+                ),
+            ],
+            className="text-center p-2",
+            style={
+                "backgroundColor": COLORS["card_bg"],
+                "borderRadius": "6px",
+            },
+        ),
+        className="mb-2",
+    )
+
+
+def _get_price_data(asset: UniverseAsset) -> tuple[float, float, bool]:
+    """Read live or fallback price for an asset. Returns (price, pct_change, is_live)."""
+    live = None
+    if asset.binance_symbol:
+        live = get_live_price(asset.binance_symbol)
+
+    if live is not None:
+        price = live
+        if asset.current_price and asset.current_price > 0:
+            pct_change = ((price - asset.current_price) / asset.current_price) * 100
+        else:
+            pct_change = asset.price_change_24h
+        return price, pct_change, True
+
+    return asset.current_price, asset.price_change_24h, False
+
+
 @callback(
     Output("live-price-row", "children"),
     Output("data-staleness-indicator", "children"),
     Input("live-interval", "n_intervals"),
     State("universe-store", "data"),
-    prevent_initial_call=True,
+    prevent_initial_call=False,
 )
 def update_live_prices(
     n_intervals: int,
@@ -57,19 +116,20 @@ def update_live_prices(
 ) -> tuple:
     """Read live prices from cache and update top-10 price badges.
 
-    Fires every 5 seconds. Only updates the live price row — does not
-    trigger any other callback or computation. Also updates the data
-    staleness indicator.
+    Fires every 5 seconds. Compares current prices against the previous tick
+    and returns no_update for the price row if nothing changed, avoiding
+    unnecessary DOM mutations.
     """
+    global _last_prices  # noqa: PLW0603
+
     try:
-        # --- Staleness indicator ---
         staleness_badge = _build_staleness_badge()
 
         if not universe_data:
             return no_update, staleness_badge
 
         # Reconstruct top-10 assets
-        top_assets = []
+        top_assets: list[UniverseAsset] = []
         for a_dict in universe_data[:10]:
             try:
                 top_assets.append(UniverseAsset(**a_dict))
@@ -79,61 +139,21 @@ def update_live_prices(
         if not top_assets:
             return no_update, staleness_badge
 
-        badges = []
-
+        # Collect current prices and check for changes
+        current_prices: dict[str, tuple[float, float, bool]] = {}
         for asset in top_assets:
-            # Try live price from WebSocket cache, fall back to CoinGecko price
-            live = None
-            if asset.binance_symbol:
-                live = get_live_price(asset.binance_symbol)
+            current_prices[asset.symbol] = _get_price_data(asset)
 
-            if live is not None:
-                price = live
-                # Compute change vs last known close from CoinGecko
-                if asset.current_price and asset.current_price > 0:
-                    pct_change = ((price - asset.current_price) / asset.current_price) * 100
-                else:
-                    pct_change = asset.price_change_24h
-            else:
-                price = asset.current_price
-                pct_change = asset.price_change_24h
+        # Skip DOM update if prices haven't changed since last tick
+        if current_prices == _last_prices:
+            return no_update, staleness_badge
 
-            color = _pct_color(pct_change)
+        _last_prices = current_prices
 
-            badge = dbc.Col(
-                html.Div(
-                    [
-                        html.Span(
-                            asset.symbol,
-                            style={"fontWeight": "bold", "marginRight": "4px"},
-                        ),
-                        html.Span(
-                            _fmt_price(price),
-                            style={"marginRight": "4px"},
-                        ),
-                        html.Span(
-                            _fmt_pct(pct_change),
-                            style={"color": color, "fontSize": "0.85em"},
-                        ),
-                        # Green dot indicator when receiving live data
-                        html.Span(
-                            " \u25CF" if live is not None else "",
-                            style={
-                                "color": COLORS["success"],
-                                "fontSize": "0.6em",
-                                "verticalAlign": "super",
-                            },
-                        ),
-                    ],
-                    className="text-center p-2",
-                    style={
-                        "backgroundColor": COLORS["card_bg"],
-                        "borderRadius": "6px",
-                    },
-                ),
-                className="mb-2",
-            )
-            badges.append(badge)
+        badges = [
+            _build_badge(asset, *current_prices[asset.symbol])
+            for asset in top_assets
+        ]
 
         return badges, staleness_badge
 
