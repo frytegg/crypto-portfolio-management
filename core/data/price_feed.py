@@ -119,13 +119,36 @@ class BinancePriceFeed:
             log.debug("ws_message_parse_error", error=str(e))
 
     def _on_error(self, ws: object, error: Exception) -> None:
-        """Log at ERROR level, let run_forever exit to trigger reconnect."""
-        log.error("ws_error", error=str(error))
+        """Log at ERROR level, let run_forever exit to trigger reconnect.
+
+        If Binance returns HTTP 451 (geo-restricted), stop permanently instead
+        of retrying — the hosting region is blocked and reconnection will never
+        succeed.
+        """
+        error_str = str(error)
+        if "451" in error_str or "restricted location" in error_str.lower():
+            log.warning(
+                "ws_geo_restricted",
+                msg="Binance WebSocket unavailable from this hosting region (HTTP 451). Live prices disabled.",
+            )
+            self._stop_event.set()
+            return
+        log.error("ws_error", error=error_str)
 
     def _on_close(self, ws: object, close_status_code: int | None = None, close_msg: str | None = None) -> None:
         """Log disconnect, set connected flag to False."""
         self._connected = False
         self._cache.set("ws_connected", False)
+
+        close_msg_str = str(close_msg or "")
+        if close_status_code == 451 or "451" in close_msg_str or "restricted" in close_msg_str.lower():
+            log.warning(
+                "ws_geo_restricted",
+                msg="Binance WebSocket unavailable from this hosting region (HTTP 451). Live prices disabled.",
+            )
+            self._stop_event.set()
+            return
+
         log.info(
             "ws_disconnected",
             status_code=close_status_code,
