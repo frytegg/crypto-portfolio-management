@@ -1,0 +1,1008 @@
+\documentclass[12pt,a4paper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[numbers,sort&compress]{natbib}
+
+% ── Theorem environments ──────────────────────────────────────────────────────
+\newtheorem{definition}{Definition}[section]
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}{Proposition}[section]
+\newtheorem{remark}{Remark}[section]
+
+% ── Custom commands ───────────────────────────────────────────────────────────
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\Corr}{\operatorname{Corr}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\argmax}{\operatorname*{arg\,max}}
+\newcommand{\argmin}{\operatorname*{arg\,min}}
+\DeclareMathOperator{\CVaR}{CVaR}
+\DeclareMathOperator{\VaR}{VaR}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=green!50!black,
+    urlcolor=blue!60!black,
+}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+
+% ── Title ─────────────────────────────────────────────────────────────────────
+\begin{titlepage}
+\centering
+\vspace*{2cm}
+{\LARGE\bfseries Mathematical Foundations of\\[0.4em]
+Multi-Strategy Cryptocurrency\\[0.4em]
+Portfolio Optimization}\\[2cm]
+{\large Team 491}\\[0.5cm]
+{\large\textit{\'Ecole Sup\'erieure d'Ing\'enieurs L\'eonard-de-Vinci (ESILV)}}\\[0.3cm]
+{\large Paris -- La D\'efense}\\[2cm]
+{\large March 2026}\\[3cm]
+\begin{abstract}
+\noindent
+This paper presents the complete mathematical framework underlying a modular cryptocurrency portfolio optimization system. We formalize seven allocation strategies---Equal Weight, Markowitz Mean-Variance Optimization, GARCH-Enhanced Global Minimum Variance, Hierarchical Risk Parity, Equal Risk Contribution, Mean-CVaR, Black-Litterman with on-chain signal views, and Regime-Aware allocation---alongside the volatility modeling (GJR-GARCH), regime detection (Gaussian Hidden Markov Models), risk analytics, and walk-forward backtesting methodology that support them. Each method is presented with full derivations, parameter definitions, and algorithmic descriptions. This document serves as the mathematical source of truth for all project deliverables.
+\end{abstract}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:intro}
+
+Cryptocurrency markets present unique challenges for portfolio construction: 24/7 continuous trading, extreme volatility, fat-tailed return distributions, and rapidly shifting correlation structures. Classical portfolio theory, developed for equity markets with moderate volatility and approximately Gaussian returns, requires careful adaptation.
+
+This paper formalizes the mathematical methods implemented in our multi-strategy portfolio optimization dashboard. The system integrates seven distinct allocation strategies, each grounded in a different branch of quantitative finance, and supports them with advanced volatility forecasting, regime detection, on-chain signal integration, and rigorous walk-forward backtesting.
+
+\paragraph{Notation.} Throughout this paper, we use the following conventions:
+\begin{itemize}[nosep]
+    \item $N$ denotes the number of assets in the investment universe.
+    \item $T$ denotes the number of time periods (daily observations).
+    \item $\bm{w} = (w_1, \ldots, w_N)^\top \in \R^N$ is the portfolio weight vector.
+    \item $\bm{\mu} \in \R^N$ is the vector of expected asset returns.
+    \item $\bm{\Sigma} \in \R^{N \times N}$ is the covariance matrix of asset returns.
+    \item $\bm{1} = (1, \ldots, 1)^\top \in \R^N$ is the vector of ones.
+    \item $r_{i,t}$ denotes the log return of asset $i$ at time $t$.
+    \item All returns are daily; annualization uses a factor of 365 (crypto convention).
+\end{itemize}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Return Modeling and Covariance Estimation}
+\label{sec:returns}
+
+\subsection{Logarithmic Returns}
+
+\begin{definition}[Log Return]
+The continuously compounded (logarithmic) return of asset $i$ at time $t$ is
+\begin{equation}
+    r_{i,t} = \ln\!\left(\frac{P_{i,t}}{P_{i,t-1}}\right) = \ln P_{i,t} - \ln P_{i,t-1},
+    \label{eq:log-return}
+\end{equation}
+where $P_{i,t}$ is the closing price of asset $i$ at time $t$.
+\end{definition}
+
+Log returns possess two key properties that justify their use in portfolio analytics:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Time additivity.} The multi-period log return is the sum of single-period log returns:
+    \begin{equation}
+        r_{i,\,t:t+k} = \sum_{s=1}^{k} r_{i,\,t+s}.
+    \end{equation}
+    \item \textbf{Approximate normality.} By the Central Limit Theorem, if daily log returns are i.i.d.\ with mean $\mu$ and variance $\sigma^2$, the $k$-period return converges to $\mathcal{N}(k\mu,\; k\sigma^2)$. In practice, cryptocurrency returns exhibit significant excess kurtosis and negative skewness (see Section~\ref{sec:metrics}), making the Gaussian approximation unreliable for tail risk estimation. This motivates the use of Student-$t$ innovations in the GARCH model (Section~\ref{sec:garch}) and CVaR-based optimization (Section~\ref{sec:cvar}).
+\end{enumerate}
+
+\subsection{Annualization}
+
+Since cryptocurrency markets operate continuously (365 days per year), we annualize as follows:
+\begin{equation}
+    \mu_{\text{ann}} = \bar{r} \times 365, \qquad
+    \sigma_{\text{ann}} = \hat{\sigma} \times \sqrt{365},
+    \label{eq:annualize}
+\end{equation}
+where $\bar{r}$ is the sample mean daily return and $\hat{\sigma}$ is the sample daily standard deviation.
+
+\subsection{Sample Covariance Matrix}
+
+\begin{definition}[Sample Covariance]
+Given the $T \times N$ matrix of centered returns, the sample covariance estimator is
+\begin{equation}
+    \hat{\bm{\Sigma}} = \frac{1}{T-1} \sum_{t=1}^{T}
+        (\bm{r}_t - \bar{\bm{r}})(\bm{r}_t - \bar{\bm{r}})^\top,
+    \label{eq:sample-cov}
+\end{equation}
+where $\bm{r}_t \in \R^N$ is the cross-sectional return vector at time $t$ and $\bar{\bm{r}} = \frac{1}{T}\sum_{t=1}^T \bm{r}_t$.
+\end{definition}
+
+When $T < 3N$---common in crypto with 50 assets and 2 years of daily data---the sample covariance is poorly conditioned and requires regularization.
+
+\subsection{Ledoit--Wolf Shrinkage Estimator}
+\label{sec:ledoit-wolf}
+
+Ledoit and Wolf~\cite{ledoit2004} proposed shrinking the sample covariance toward a structured target:
+\begin{equation}
+    \hat{\bm{\Sigma}}_{\text{LW}} = (1 - \alpha^*)\,\hat{\bm{\Sigma}} + \alpha^*\,\bm{F},
+    \label{eq:ledoit-wolf}
+\end{equation}
+where $\bm{F}$ is the shrinkage target and $\alpha^* \in [0,1]$ is the optimal shrinkage intensity derived analytically.
+
+For the \emph{constant-correlation target}~\cite{ledoit2003}:
+\begin{equation}
+    F_{ij} = \begin{cases}
+        \hat{\sigma}_{ii} & \text{if } i = j, \\
+        \bar{\rho}\,\sqrt{\hat{\sigma}_{ii}\,\hat{\sigma}_{jj}} & \text{if } i \neq j,
+    \end{cases}
+\end{equation}
+where $\hat{\sigma}_{ii} = [\hat{\bm{\Sigma}}]_{ii}$ denotes the $i$-th diagonal element (asset variance) of the sample covariance and $\bar{\rho}$ is the average sample correlation. The optimal intensity minimizes the expected Frobenius loss $\E\bigl[\|\hat{\bm{\Sigma}}_{\text{LW}} - \bm{\Sigma}\|_F^2\bigr]$ and is given in closed form in~\cite{ledoit2004}.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Markowitz Mean-Variance Optimization}
+\label{sec:markowitz}
+
+\subsection{Problem Formulation}
+
+The foundational portfolio selection model of Markowitz~\cite{markowitz1952} minimizes portfolio variance subject to a target expected return.
+
+\begin{definition}[Mean-Variance Problem]
+For a target return $\mu_0$:
+\begin{equation}
+\boxed{
+\begin{aligned}
+    \min_{\bm{w}} \quad & \bm{w}^\top \bm{\Sigma}\, \bm{w} \\
+    \text{s.t.} \quad & \bm{w}^\top \bm{\mu} = \mu_0, \\
+                      & \bm{w}^\top \bm{1} = 1.
+\end{aligned}
+}
+\label{eq:mvo}
+\end{equation}
+\end{definition}
+
+\subsection{Analytical Solution and the Efficient Frontier}
+
+The Lagrangian of~\eqref{eq:mvo} is
+\begin{equation}
+    \mathcal{L}(\bm{w}, \lambda_1, \lambda_2) =
+        \bm{w}^\top \bm{\Sigma}\,\bm{w}
+        + \lambda_1\bigl(\bm{w}^\top\bm{\mu} - \mu_0\bigr)
+        + \lambda_2\bigl(\bm{w}^\top\bm{1} - 1\bigr).
+\end{equation}
+
+The following analytical results assume $\bm{\Sigma} \succ 0$ (positive definite). When $\bm{\Sigma}$ is only positive semi-definite, the inverse does not exist and numerical solvers with regularization must be used (see Section~\ref{sec:ledoit-wolf}).
+
+Setting $\nabla_{\bm{w}} \mathcal{L} = \bm{0}$ yields:
+\begin{equation}
+    \bm{w}^* = -\frac{1}{2}\,\bm{\Sigma}^{-1}\bigl(\lambda_1\,\bm{\mu} + \lambda_2\,\bm{1}\bigr).
+    \label{eq:mvo-weights}
+\end{equation}
+
+Define the scalar constants:
+\begin{equation}
+    A = \bm{1}^\top \bm{\Sigma}^{-1} \bm{\mu}, \quad
+    B = \bm{\mu}^\top \bm{\Sigma}^{-1} \bm{\mu}, \quad
+    C = \bm{1}^\top \bm{\Sigma}^{-1} \bm{1}, \quad
+    D = BC - A^2.
+    \label{eq:mvo-constants}
+\end{equation}
+
+The optimal weights are a linear function of the target return:
+\begin{equation}
+    \bm{w}^*(\mu_0) = \bm{g} + \bm{h}\,\mu_0,
+    \label{eq:two-fund}
+\end{equation}
+where
+\begin{equation}
+    \bm{g} = \frac{1}{D}\bigl(B\,\bm{\Sigma}^{-1}\bm{1} - A\,\bm{\Sigma}^{-1}\bm{\mu}\bigr), \quad
+    \bm{h} = \frac{1}{D}\bigl(C\,\bm{\Sigma}^{-1}\bm{\mu} - A\,\bm{\Sigma}^{-1}\bm{1}\bigr).
+\end{equation}
+
+The \textbf{efficient frontier} in $(\sigma_p, \mu_p)$ space is the upper branch of the hyperbola:
+\begin{equation}
+    \sigma_p^2 = \frac{1}{D}\bigl(C\,\mu_p^2 - 2A\,\mu_p + B\bigr).
+    \label{eq:frontier}
+\end{equation}
+
+\begin{remark}[Two-Fund Separation]
+Equation~\eqref{eq:two-fund} implies that every efficient portfolio is a linear combination of any two distinct efficient portfolios---the Two-Fund Separation Theorem.
+\end{remark}
+
+\subsection{Global Minimum Variance Portfolio}
+
+The GMV portfolio minimizes variance without a return constraint:
+\begin{equation}
+    \bm{w}_{\text{GMV}} = \frac{\bm{\Sigma}^{-1}\bm{1}}{\bm{1}^\top\bm{\Sigma}^{-1}\bm{1}},
+    \label{eq:gmv}
+\end{equation}
+with $\mu_{\text{GMV}} = A/C$ and $\sigma_{\text{GMV}}^2 = 1/C$.
+
+\subsection{Maximum Sharpe Ratio (Tangency) Portfolio}
+
+Given a risk-free rate $r_f$, the tangency portfolio maximizes the Sharpe ratio:
+\begin{equation}
+    \bm{w}_{\text{tan}} = \frac{\bm{\Sigma}^{-1}(\bm{\mu} - r_f\,\bm{1})}
+                               {\bm{1}^\top\bm{\Sigma}^{-1}(\bm{\mu} - r_f\,\bm{1})}.
+    \label{eq:tangency}
+\end{equation}
+
+The maximum attainable Sharpe ratio is:
+\begin{equation}
+    S_{\max} = \sqrt{(\bm{\mu} - r_f\,\bm{1})^\top \bm{\Sigma}^{-1} (\bm{\mu} - r_f\,\bm{1})}.
+\end{equation}
+
+\subsection{Weight Constraints}
+
+In practice, we impose box constraints to prevent concentration:
+\begin{equation}
+    0 \leq w_i \leq w_{\max} \quad \forall\, i = 1, \ldots, N, \qquad
+    \sum_{i=1}^{N} w_i = 1.
+    \label{eq:box-constraints}
+\end{equation}
+
+With these constraints, the closed-form solutions~\eqref{eq:gmv}--\eqref{eq:tangency} no longer hold, and the problem is solved numerically via quadratic programming (CLARABEL solver).
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Equal Weight Baseline}
+\label{sec:equal-weight}
+
+The na\"ive diversification strategy assigns equal capital to all assets:
+\begin{equation}
+    w_i = \frac{1}{N}, \quad i = 1, \ldots, N.
+    \label{eq:equal-weight}
+\end{equation}
+
+DeMiguel, Garlappi, and Uppal~\cite{demiguel2009} showed that no optimized strategy consistently outperforms $1/N$ out-of-sample across 7 empirical datasets. The sample size required for MVO to dominate $1/N$ scales as:
+\begin{equation}
+    T^* \propto \frac{N \cdot \sigma^2}{\mu^2},
+\end{equation}
+which, calibrated to financial data, yields $T^* \approx 3{,}000$ months (approximately 250 years) for $N = 25$ assets. With typical crypto data horizons of 2--5 years, this threshold is far from met, making $1/N$ a strong baseline.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{GJR-GARCH Volatility Forecasting}
+\label{sec:garch}
+
+\subsection{Model Specification}
+
+The GJR-GARCH(1,1,1) model~\cite{glosten1993} captures the \emph{leverage effect}---the empirical observation that negative shocks increase future volatility more than positive shocks of equal magnitude.
+
+\begin{definition}[GJR-GARCH(1,1,1)]
+\begin{align}
+    r_t &= \mu + \varepsilon_t, \label{eq:garch-return} \\
+    \varepsilon_t &= \sigma_t\, z_t, \qquad z_t \sim t_\nu(0,1), \label{eq:garch-innovation} \\
+    \sigma_t^2 &= \omega + \alpha\,\varepsilon_{t-1}^2
+        + \gamma\,\varepsilon_{t-1}^2\,\mathbb{I}(\varepsilon_{t-1} < 0)
+        + \beta\,\sigma_{t-1}^2,
+    \label{eq:garch-variance}
+\end{align}
+where $\mathbb{I}(\cdot)$ is the indicator function, and $t_\nu$ denotes the standardized Student-$t$ distribution with $\nu > 2$ degrees of freedom.
+\end{definition}
+
+\paragraph{Parameters.}
+\begin{itemize}[nosep]
+    \item $\omega > 0$: baseline variance floor.
+    \item $\alpha \geq 0$: ARCH coefficient (symmetric shock impact).
+    \item $\gamma \geq 0$: leverage coefficient (additional impact for $\varepsilon_{t-1} < 0$).
+    \item $\beta \geq 0$: GARCH coefficient (variance persistence).
+    \item $\nu > 2$: degrees of freedom of the Student-$t$ innovation distribution.
+\end{itemize}
+
+\begin{remark}
+The impact of a negative shock is $\alpha + \gamma$, while the impact of a positive shock is $\alpha$. The ratio $(\alpha + \gamma)/\alpha$ quantifies the \emph{asymmetry ratio} when $\alpha > 0$. When $\alpha = 0$ (no symmetric ARCH effect), asymmetry is driven entirely by $\gamma$, and the model reduces to a pure leverage specification.
+\end{remark}
+
+\subsection{Stationarity and Unconditional Variance}
+
+\begin{proposition}[Stationarity Condition]
+The GJR-GARCH(1,1,1) process is covariance-stationary if and only if
+\begin{equation}
+    \kappa \coloneqq \alpha + \frac{\gamma}{2} + \beta < 1.
+    \label{eq:garch-persistence}
+\end{equation}
+\end{proposition}
+
+The factor $\gamma/2$ arises because $\E[\mathbb{I}(\varepsilon_{t-1} < 0)] = 1/2$ under a symmetric distribution. The unconditional variance is:
+\begin{equation}
+    \bar{\sigma}^2 = \frac{\omega}{1 - \kappa} = \frac{\omega}{1 - \alpha - \gamma/2 - \beta}.
+    \label{eq:garch-uncond}
+\end{equation}
+
+\subsection{Maximum Likelihood Estimation}
+
+Under the Student-$t$ distributional assumption, the per-observation log-likelihood is:
+\begin{equation}
+    \ell_t = \ln\Gamma\!\left(\frac{\nu+1}{2}\right) - \ln\Gamma\!\left(\frac{\nu}{2}\right)
+    - \frac{1}{2}\ln\bigl(\pi(\nu-2)\bigr)
+    - \frac{1}{2}\ln\sigma_t^2
+    - \frac{\nu+1}{2}\,\ln\!\left(1 + \frac{\varepsilon_t^2}{\sigma_t^2(\nu-2)}\right),
+    \label{eq:garch-loglik}
+\end{equation}
+where $\Gamma(\cdot)$ is the gamma function. The parameters $\bm{\theta} = (\mu, \omega, \alpha, \gamma, \beta, \nu)$ are estimated by maximizing $\ell(\bm{\theta}) = \sum_{t=1}^T \ell_t$ subject to the non-negativity and stationarity constraints.
+
+\subsection{Input Rescaling}
+
+For numerical stability, daily log returns (typically of order $10^{-2}$) are multiplied by 100 before fitting:
+\begin{equation}
+    y_t = 100 \cdot r_t.
+\end{equation}
+After fitting, the conditional volatility is converted back: $\hat{\sigma}_t = \hat{\sigma}_t^{(\text{scaled})} / 100$, and variance forecasts are divided by $10{,}000$.
+
+\subsection{Multi-Step Ahead Forecasting}
+
+The one-step forecast is computed directly from~\eqref{eq:garch-variance}. For $h \geq 2$ steps ahead, using the law of iterated expectations:
+\begin{equation}
+    \sigma_{t+h|t}^2 = \bar{\sigma}^2 + \kappa^{h-1}\bigl(\sigma_{t+1|t}^2 - \bar{\sigma}^2\bigr).
+    \label{eq:garch-forecast}
+\end{equation}
+
+This shows that forecasts mean-revert exponentially to the unconditional variance $\bar{\sigma}^2$ at rate $\kappa$.
+
+\subsection{GARCH-Modified Covariance Matrix}
+\label{sec:garch-cov}
+
+Following the CCC-GARCH framework of Bollerslev~\cite{bollerslev1990}, we construct a forward-looking covariance matrix:
+
+\begin{enumerate}[nosep]
+    \item Fit GJR-GARCH(1,1,1) to each asset $i$ independently $\to$ obtain $\hat{\sigma}_i$ (one-step-ahead forecast).
+    \item Compute standardized residuals: $z_{i,t} = \varepsilon_{i,t} / \sigma_{i,t}$.
+    \item Estimate the constant correlation matrix: $\bm{R} = \Corr(\bm{z}_t)$.
+    \item Construct the diagonal volatility matrix: $\bm{D} = \diag(\hat{\sigma}_1, \ldots, \hat{\sigma}_N)$.
+    \item Form the covariance matrix:
+\end{enumerate}
+\begin{equation}
+    \hat{\bm{H}} = \bm{D}\,\bm{R}\,\bm{D}, \qquad \text{i.e.,}\quad
+    \hat{H}_{ij} = \hat{\sigma}_i\,\rho_{ij}\,\hat{\sigma}_j.
+    \label{eq:garch-cov}
+\end{equation}
+
+This matrix replaces the sample covariance in the GARCH-Enhanced GMV strategy, providing a volatility-regime-aware estimate.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Hierarchical Risk Parity}
+\label{sec:hrp}
+
+Hierarchical Risk Parity (HRP), introduced by L\'opez de Prado~\cite{lopezdeprado2016}, is a graph-theoretic alternative to MVO that avoids matrix inversion entirely, providing robustness to estimation error.
+
+\subsection{Step 1: Tree Clustering}
+
+Define a distance metric that converts correlation into Euclidean distance:
+\begin{equation}
+    d(i, j) = \sqrt{\frac{1 - \rho_{ij}}{2}},
+    \label{eq:hrp-distance}
+\end{equation}
+where $\rho_{ij}$ is the Pearson correlation between assets $i$ and $j$. Note that $d \in [0, 1]$, with $d = 0$ for perfectly correlated assets and $d = 1$ for perfectly anti-correlated assets. For uncorrelated assets ($\rho = 0$), $d = 1/\sqrt{2} \approx 0.707$. Agglomerative hierarchical clustering (Ward linkage) is applied to the distance matrix to produce a dendrogram.
+
+\subsection{Step 2: Quasi-Diagonalization}
+
+The rows and columns of $\bm{\Sigma}$ are reordered according to the dendrogram's leaf ordering, producing a permuted covariance matrix $\bm{\Sigma}_{\text{QD}}$ with a quasi-block-diagonal structure. This ensures that subsequent bisection splits separate dissimilar clusters.
+
+\subsection{Step 3: Recursive Bisection}
+
+\begin{algorithm}[H]
+\caption{HRP Recursive Bisection}
+\label{alg:hrp}
+\begin{algorithmic}[1]
+\Require Covariance matrix $\bm{\Sigma}$, ordered asset indices $\mathcal{L} = [\ell_1, \ldots, \ell_N]$
+\Ensure Weight vector $\bm{w}$ with $\sum_i w_i = 1$
+\State Initialize $w_i \gets 1$ for all $i$
+\State $\mathcal{Q} \gets \{\mathcal{L}\}$ \Comment{Queue of clusters to process}
+\While{$\exists\, C \in \mathcal{Q}$ with $|C| > 1$}
+    \State Split $C$ into left half $C_1$ and right half $C_2$
+    \State Compute inverse-variance weights within each cluster:
+    \Statex \qquad $\tilde{w}_k^{(C_j)} = \frac{1/\Sigma_{kk}}{\sum_{m \in C_j} 1/\Sigma_{mm}}$ for $k \in C_j$
+    \State Compute cluster variance:
+    \Statex \qquad $V(C_j) = \tilde{\bm{w}}^{(C_j)\top} \bm{\Sigma}_{C_j}\, \tilde{\bm{w}}^{(C_j)}$ for $j \in \{1, 2\}$
+    \State Compute splitting factor:
+    \begin{equation}
+        \alpha = 1 - \frac{V(C_1)}{V(C_1) + V(C_2)}
+        \label{eq:hrp-alpha}
+    \end{equation}
+    \State Update weights: $w_i \gets w_i \cdot \alpha$ for $i \in C_1$;\quad $w_i \gets w_i \cdot (1 - \alpha)$ for $i \in C_2$
+\EndWhile
+\State \Return $\bm{w}$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{remark}[Robustness]
+HRP never inverts $\bm{\Sigma}$---it only reads diagonal entries and computes quadratic forms. The condition number $\kappa(\bm{\Sigma}) = |\lambda_{\max}|/|\lambda_{\min}|$, which amplifies estimation error in MVO by a factor of $\kappa$ upon inversion, is irrelevant for HRP. This makes HRP particularly suitable for the high-dimensional, high-correlation crypto setting.
+\end{remark}
+
+Our implementation uses riskfolio-lib's \texttt{HCPortfolio} class, which extends the original algorithm with configurable codependence measures (Pearson, Spearman, Kendall), covariance estimators, and risk measures for the bisection step.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Equal Risk Contribution (Risk Parity)}
+\label{sec:risk-parity}
+
+\subsection{Risk Decomposition}
+
+Since $\sigma(\bm{w}) = \sqrt{\bm{w}^\top\bm{\Sigma}\bm{w}}$ is positively homogeneous of degree 1 in $\bm{w}$, Euler's theorem gives the decomposition:
+\begin{equation}
+    \sigma(\bm{w}) = \sum_{i=1}^{N} \underbrace{w_i \cdot \frac{(\bm{\Sigma w})_i}{\sigma(\bm{w})}}_{\text{RC}_i},
+    \label{eq:euler}
+\end{equation}
+where $\text{RC}_i$ is the \textbf{risk contribution} of asset $i$ and $(\bm{\Sigma w})_i = \sum_j \Sigma_{ij}\,w_j$ is the \textbf{marginal risk}.
+
+The \textbf{percentage risk contribution} is:
+\begin{equation}
+    \%\text{RC}_i = \frac{w_i \cdot (\bm{\Sigma w})_i}{\bm{w}^\top \bm{\Sigma}\, \bm{w}}.
+    \label{eq:prc}
+\end{equation}
+
+\subsection{ERC Formulation (Maillard--Roncalli--Te\"il\'etche)}
+
+The Equal Risk Contribution (ERC) portfolio~\cite{maillard2010} requires $\text{RC}_i = \text{RC}_j$ for all pairs $(i,j)$:
+\begin{equation}
+    \min_{\bm{w}} \sum_{i=1}^{N} \sum_{j=1}^{N}
+        \bigl(w_i\,(\bm{\Sigma w})_i - w_j\,(\bm{\Sigma w})_j\bigr)^2,
+    \quad \text{s.t.}\quad \bm{w}^\top\bm{1} = 1,\; w_i \geq 0.
+    \label{eq:erc-mrt}
+\end{equation}
+
+\subsection{Log-Barrier Formulation (Spinu)}
+
+The objective in~\eqref{eq:erc-mrt} is a quartic polynomial in $\bm{w}$ and is \emph{not convex}---gradient-based solvers may converge to local minima. This motivates the reformulation below.
+
+Spinu~\cite{spinu2013} showed that ERC is equivalent to the strictly convex problem:
+\begin{equation}
+\boxed{
+    \min_{\bm{x} > \bm{0}} \quad \frac{1}{2}\,\bm{x}^\top\bm{\Sigma}\,\bm{x}
+        - \sum_{i=1}^{N} b_i\,\ln x_i,
+}
+\label{eq:spinu}
+\end{equation}
+where $b_i = 1/N$ for ERC (or $b_i$ equals the desired risk budget for general risk budgeting), and $\bm{w} = \bm{x}/\|\bm{x}\|_1$ after solving.
+
+\begin{proposition}[Strict Convexity]
+The Hessian of~\eqref{eq:spinu} is $\bm{H} = \bm{\Sigma} + \diag(b_i/x_i^2)$. Since $\bm{\Sigma}$ is PSD and $\diag(b_i/x_i^2)$ is strictly positive definite for $\bm{x} > \bm{0}$, the problem has a unique global minimum.
+\end{proposition}
+
+\subsection{Relaxed Risk Parity Fallback}
+
+When $\bm{\Sigma}$ is near-singular (common during high-correlation crypto bear markets), the standard solver may fail. The \emph{Relaxed Risk Parity} (RRP) formulation recasts the problem as a second-order cone program (SOCP):
+\begin{equation}
+\begin{aligned}
+    \min_{\bm{w},\,\psi,\,\gamma} \quad & \psi - \gamma \\
+    \text{s.t.} \quad & \bm{w}^\top\bm{\Sigma}\bm{w} \leq \psi^2, \\
+    & w_i\,(\bm{\Sigma w})_i \geq \gamma^2 b_i \quad \forall\, i, \\
+    & \bm{w}^\top\bm{1} = 1,\; \bm{w} \geq \bm{0},\; \psi, \gamma \geq 0.
+\end{aligned}
+\label{eq:rrp}
+\end{equation}
+
+The objective drives $\psi$ down (less total risk) and $\gamma$ up (more equal contributions). When the strict ERC solution exists, RRP recovers it exactly.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Mean-CVaR Optimization}
+\label{sec:cvar}
+
+\subsection{Value-at-Risk and Conditional Value-at-Risk}
+
+\begin{definition}[Value-at-Risk]
+For a confidence level $\alpha \in (0,1)$, the VaR of a portfolio with return $R_p$ is:
+\begin{equation}
+    \VaR_\alpha = -\inf\bigl\{x \in \R : F_{R_p}(x) > 1 - \alpha\bigr\},
+    \label{eq:var}
+\end{equation}
+i.e., the $\alpha$-quantile loss. Equivalently, $\Pr(R_p < -\VaR_\alpha) \leq 1 - \alpha$. For continuous return distributions, this simplifies to $\VaR_\alpha = -F_{R_p}^{-1}(1-\alpha)$.
+\end{definition}
+
+\begin{definition}[Conditional Value-at-Risk (Expected Shortfall)]
+\begin{equation}
+    \CVaR_\alpha = -\E\bigl[R_p \mid R_p \leq -\VaR_\alpha\bigr]
+    = \frac{1}{1 - \alpha}\int_{-\infty}^{-\VaR_\alpha} (-x)\,f_{R_p}(x)\,dx.
+    \label{eq:cvar}
+\end{equation}
+\end{definition}
+
+CVaR is a \emph{coherent risk measure}~\cite{artzner1999}, satisfying sub-additivity ($\CVaR(\bm{w}_1 + \bm{w}_2) \leq \CVaR(\bm{w}_1) + \CVaR(\bm{w}_2)$), whereas VaR is not.
+
+\subsection{Rockafellar--Uryasev LP Reformulation}
+
+Rockafellar and Uryasev~\cite{rockafellar2000} introduced the auxiliary function:
+\begin{equation}
+    F_\alpha(\bm{w}, \zeta) = \zeta + \frac{1}{1 - \alpha}\,
+        \E\!\left[\max\bigl(0,\; -\bm{r}^\top\bm{w} - \zeta\bigr)\right],
+    \label{eq:ru-auxiliary}
+\end{equation}
+where $\zeta \in \R$ is an auxiliary variable.
+
+\begin{theorem}[Rockafellar--Uryasev, 2000]
+\begin{enumerate}[nosep]
+    \item $\CVaR_\alpha(\bm{w}) = \min_{\zeta \in \R} F_\alpha(\bm{w}, \zeta)$.
+    \item The minimizer $\zeta^*$ equals $\VaR_\alpha(\bm{w})$.
+    \item $F_\alpha$ is jointly convex in $(\bm{w}, \zeta)$.
+\end{enumerate}
+\end{theorem}
+
+For $S$ historical return scenarios $\bm{r}_1, \ldots, \bm{r}_S$ (each equally likely), introduce auxiliary variables $u_s \geq 0$:
+\begin{equation}
+\boxed{
+\begin{aligned}
+    \min_{\bm{w},\,\zeta,\,\bm{u}} \quad
+        & \zeta + \frac{1}{S(1-\alpha)} \sum_{s=1}^{S} u_s \\
+    \text{s.t.} \quad
+        & u_s \geq -\bm{r}_s^\top\bm{w} - \zeta, \quad s = 1, \ldots, S, \\
+        & u_s \geq 0, \quad s = 1, \ldots, S, \\
+        & \bm{w}^\top\bm{1} = 1,\;\; 0 \leq w_i \leq w_{\max}.
+\end{aligned}
+}
+\label{eq:cvar-lp}
+\end{equation}
+
+This is a \textbf{linear program} with $N + 1 + S$ decision variables and $2S$ inequality constraints, solvable in polynomial time.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Black--Litterman Model}
+\label{sec:bl}
+
+The Black--Litterman model~\cite{black1992} combines a market-equilibrium prior with investor views via Bayesian inference to produce stable posterior return estimates.
+
+\subsection{Equilibrium Prior}
+
+If the market-capitalization-weighted portfolio $\bm{w}_{\text{mkt}}$ is mean-variance optimal, the implied equilibrium excess returns are:
+\begin{equation}
+    \bm{\pi} = \delta\,\bm{\Sigma}\,\bm{w}_{\text{mkt}},
+    \label{eq:bl-pi}
+\end{equation}
+where $\delta = (\mu_m - r_f)/\sigma_m^2$ is the market risk-aversion coefficient. The prior distribution on expected returns is:
+\begin{equation}
+    \bm{\mu} \sim \mathcal{N}(\bm{\pi},\; \tau\bm{\Sigma}),
+    \label{eq:bl-prior}
+\end{equation}
+where $\tau > 0$ (typically $0.025$--$0.05$) scales the prior uncertainty.
+
+\subsection{View Specification}
+
+An investor expresses $K$ views through:
+\begin{itemize}[nosep]
+    \item \textbf{Pick matrix} $\bm{P} \in \R^{K \times N}$: each row encodes one view as a linear combination of asset returns.
+    \item \textbf{View vector} $\bm{Q} \in \R^K$: the expected return for each view.
+    \item \textbf{Uncertainty matrix} $\bm{\Omega} \in \R^{K \times K}$: diagonal matrix of view variances. Using the He--Litterman specification~\cite{he1999}:
+        \begin{equation}
+            \bm{\Omega} = \text{diag}\bigl(\tau\,\bm{P}\,\bm{\Sigma}\,\bm{P}^\top\bigr).
+            \label{eq:bl-omega}
+        \end{equation}
+        In practice, $\bm{\Omega}$ is taken as the \emph{diagonal} of $\tau\bm{P}\bm{\Sigma}\bm{P}^\top$, assuming independent view errors---the standard implementation in riskfolio-lib.
+\end{itemize}
+
+\paragraph{View types.}
+\begin{itemize}[nosep]
+    \item \emph{Absolute view} on asset $i$: row of $\bm{P}$ has $+1$ at position $i$, zeros elsewhere.
+    \item \emph{Relative view} (asset $i$ outperforms $j$ by $q$): row has $+1$ at $i$, $-1$ at $j$.
+\end{itemize}
+
+\subsection{Bayesian Posterior}
+
+Applying Bayes' theorem with Gaussian prior~\eqref{eq:bl-prior} and Gaussian likelihood $\bm{P\mu} \sim \mathcal{N}(\bm{Q}, \bm{\Omega})$:
+
+\begin{equation}
+\boxed{
+    \E[\bm{R}] = \bigl[(\tau\bm{\Sigma})^{-1} + \bm{P}^\top\bm{\Omega}^{-1}\bm{P}\bigr]^{-1}
+        \bigl[(\tau\bm{\Sigma})^{-1}\bm{\pi} + \bm{P}^\top\bm{\Omega}^{-1}\bm{Q}\bigr].
+}
+\label{eq:bl-posterior}
+\end{equation}
+
+The posterior covariance is:
+\begin{equation}
+    \bm{\Sigma}_{\text{post}} = \bigl[(\tau\bm{\Sigma})^{-1} + \bm{P}^\top\bm{\Omega}^{-1}\bm{P}\bigr]^{-1}.
+    \label{eq:bl-postcov}
+\end{equation}
+
+An equivalent form, derived via the Woodbury matrix identity, avoids inverting the $N \times N$ matrix $\tau\bm{\Sigma}$ and instead inverts the $K \times K$ matrix $\bm{P}\tau\bm{\Sigma}\bm{P}^\top + \bm{\Omega}$, where $K \ll N$ (number of views $\ll$ number of assets):
+\begin{equation}
+    \E[\bm{R}] = \bm{\pi} + \tau\bm{\Sigma}\bm{P}^\top
+        \bigl[\bm{P}\,\tau\bm{\Sigma}\,\bm{P}^\top + \bm{\Omega}\bigr]^{-1}
+        (\bm{Q} - \bm{P}\bm{\pi}).
+    \label{eq:bl-alt}
+\end{equation}
+
+\subsection{On-Chain Signal Views}
+\label{sec:bl-onchain}
+
+In our implementation, views are derived from DeFiLlama on-chain data:
+
+\begin{enumerate}[nosep]
+    \item \textbf{TVL momentum} $> 5\%$: generates a relative view that ETH outperforms BTC.
+    \item \textbf{Stablecoin inflow} $> 3\%$: generates an absolute bullish view on all assets equally.
+    \item \textbf{DEX volume surge} $> 30\%$: generates an absolute view favoring DeFi tokens (from the candidate set \{UNI, AAVE, MKR, LINK\}, filtered to those present in the current universe).
+\end{enumerate}
+
+Each signal is mapped to a row of $\bm{P}$ and an element of $\bm{Q}$, with confidence encoded through $\bm{\Omega}$. When no signals are triggered, the model falls back to Maximum Sharpe Markowitz optimization.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Hidden Markov Model Regime Detection}
+\label{sec:hmm}
+
+\subsection{Model Definition}
+
+A Gaussian Hidden Markov Model~\cite{rabiner1989,baum1970} is defined by the triplet $\lambda = (\bm{A}, \bm{B}, \bm{\rho})$:
+
+\begin{definition}[Gaussian HMM]
+\begin{itemize}[nosep]
+    \item \textbf{Hidden states}: $\mathcal{S} = \{s_1, \ldots, s_K\}$ with $K \in \{2, 3\}$.
+    \item \textbf{Transition matrix}: $\bm{A} \in \R^{K \times K}$, where $A_{ij} = \Pr(q_t = s_j \mid q_{t-1} = s_i)$.
+    \item \textbf{Emission distributions}: $b_j(o_t) = \mathcal{N}(o_t;\, \mu_j, \sigma_j^2)$ for each state $j$.
+    \item \textbf{Initial distribution}: $\rho_j = \Pr(q_1 = s_j)$.
+\end{itemize}
+\end{definition}
+
+\subsection{Forward Algorithm}
+
+The forward variable $\alpha_t(j)$ computes the joint probability of the observations up to time $t$ and being in state $j$:
+\begin{align}
+    \alpha_1(j) &= \rho_j \cdot b_j(o_1), \label{eq:forward-init} \\
+    \alpha_t(j) &= b_j(o_t) \sum_{i=1}^{K} \alpha_{t-1}(i)\, A_{ij}, \quad t = 2, \ldots, T.
+    \label{eq:forward-recur}
+\end{align}
+
+The model likelihood is $\Pr(\bm{O} \mid \lambda) = \sum_{j=1}^K \alpha_T(j)$.
+
+\subsection{Backward Algorithm}
+
+The backward variable $\beta_t(i)$ computes the probability of future observations given the current state:
+\begin{align}
+    \beta_T(i) &= 1, \label{eq:backward-init} \\
+    \beta_t(i) &= \sum_{j=1}^{K} A_{ij}\, b_j(o_{t+1})\, \beta_{t+1}(j), \quad t = T{-}1, \ldots, 1.
+    \label{eq:backward-recur}
+\end{align}
+
+\subsection{Baum--Welch Algorithm (EM)}
+\label{sec:baum-welch}
+
+The Baum--Welch algorithm~\cite{baum1970} estimates $\lambda$ from observations by iterating:
+
+\paragraph{E-Step.} Compute posterior state probabilities:
+\begin{align}
+    \gamma_t(j) &= \frac{\alpha_t(j)\,\beta_t(j)}{\sum_{k=1}^K \alpha_t(k)\,\beta_t(k)},
+    \label{eq:gamma} \\
+    \xi_t(i, j) &= \frac{\alpha_t(i)\, A_{ij}\, b_j(o_{t+1})\, \beta_{t+1}(j)}
+                        {\Pr(\bm{O} \mid \lambda)}.
+    \label{eq:xi}
+\end{align}
+
+\paragraph{M-Step.} Re-estimate parameters:
+\begin{align}
+    \hat{\rho}_j &= \gamma_1(j), \label{eq:bw-pi} \\
+    \hat{A}_{ij} &= \frac{\sum_{t=1}^{T-1} \xi_t(i,j)}{\sum_{t=1}^{T-1} \gamma_t(i)},
+    \label{eq:bw-A} \\
+    \hat{\mu}_j &= \frac{\sum_{t=1}^{T} \gamma_t(j)\, o_t}{\sum_{t=1}^{T} \gamma_t(j)},
+    \label{eq:bw-mu} \\
+    \hat{\sigma}_j^2 &= \frac{\sum_{t=1}^{T} \gamma_t(j)\,(o_t - \hat{\mu}_j)^2}
+                             {\sum_{t=1}^{T} \gamma_t(j)}.
+    \label{eq:bw-sigma}
+\end{align}
+
+\subsection{Viterbi Algorithm}
+\label{sec:viterbi}
+
+The Viterbi algorithm~\cite{viterbi1967} finds the most likely hidden state sequence via dynamic programming:
+\begin{align}
+    \delta_1(j) &= \rho_j \cdot b_j(o_1), \label{eq:viterbi-init} \\
+    \delta_t(j) &= \max_{i \in \{1,\ldots,K\}} \bigl[\delta_{t-1}(i) \cdot A_{ij}\bigr] \cdot b_j(o_t),
+    \label{eq:viterbi-recur} \\
+    \psi_t(j) &= \argmax_{i \in \{1,\ldots,K\}} \bigl[\delta_{t-1}(i) \cdot A_{ij}\bigr].
+    \label{eq:viterbi-backptr}
+\end{align}
+
+The optimal final state is $q_T^* = \argmax_j \delta_T(j)$, and the full sequence is recovered by backtracking: $q_t^* = \psi_{t+1}(q_{t+1}^*)$.
+
+\begin{remark}[Log-Space Implementation]
+In practice, all computations use log-probabilities to prevent floating-point underflow: $\ln\delta_t(j) = \max_i[\ln\delta_{t-1}(i) + \ln A_{ij}] + \ln b_j(o_t)$.
+\end{remark}
+
+\subsection{State Identification}
+
+State labels from Baum--Welch are arbitrary. Regimes are identified by emission means after fitting:
+\begin{equation}
+    \text{Bull} = \argmax_{j \in \{1,\ldots,K\}} \mu_j, \qquad
+    \text{Bear} = \argmin_{j \in \{1,\ldots,K\}} \mu_j.
+    \label{eq:state-id}
+\end{equation}
+For $K = 3$, the remaining state is labeled ``Sideways.''
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Regime-Aware Allocation}
+\label{sec:regime-alloc}
+
+Following Ang and Bekaert~\cite{ang2004}, the regime-aware strategy selects an optimization strategy conditional on the current market regime:
+
+\begin{equation}
+    \bm{w}_t = \begin{cases}
+        \bm{w}_{\text{MaxSharpe}} & \text{if } q_T^* = \text{Bull}, \\
+        \bm{w}_{\text{MinVar}}    & \text{if } q_T^* = \text{Bear}, \\
+        \bm{w}_{\text{ERC}}       & \text{if } q_T^* = \text{Sideways}.
+    \end{cases}
+    \label{eq:regime-switch}
+\end{equation}
+
+This is a \emph{hard switching} rule based on the Viterbi state at time $T$. An alternative \emph{soft-blending} approach, not implemented in the current system but proposed for future work, uses the posterior state probabilities from the forward algorithm:
+\begin{equation}
+    \bm{w}_t^{\text{soft}} = \sum_{j=1}^{K} \gamma_T(j)\,\bm{w}^{(j)},
+    \label{eq:soft-blend}
+\end{equation}
+which would produce smoother transitions between strategies at the cost of higher turnover near regime boundaries.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Risk and Performance Metrics}
+\label{sec:metrics}
+
+\subsection{Core Performance Ratios}
+
+\begin{definition}[Sharpe Ratio~\cite{sharpe1966}]
+\begin{equation}
+    S = \frac{\mu_{\text{ann}} - r_f}{\sigma_{\text{ann}}}.
+    \label{eq:sharpe}
+\end{equation}
+\end{definition}
+
+\begin{definition}[Sortino Ratio~\cite{sortino1991}]
+\begin{equation}
+    \text{So} = \frac{\mu_{\text{ann}} - r_f}{\sigma_{\text{down}} \cdot \sqrt{365}},
+    \qquad \sigma_{\text{down}} = \sqrt{\frac{1}{T-1}\sum_{t:\,r_t < 0} r_t^2}.
+    \label{eq:sortino}
+\end{equation}
+\end{definition}
+
+\begin{definition}[Calmar Ratio~\cite{young1991}]
+\begin{equation}
+    C = \frac{\mu_{\text{ann}}}{|\text{MDD}|}.
+    \label{eq:calmar}
+\end{equation}
+\end{definition}
+
+\begin{definition}[Omega Ratio~\cite{keating2002}]
+For threshold $\tau = 0$:
+\begin{equation}
+    \Omega = \frac{\sum_{t:\,r_t > 0} r_t}{\left|\sum_{t:\,r_t < 0} r_t\right|} = \frac{\E[\max(R, 0)]}{\E[\max(-R, 0)]}.
+    \label{eq:omega}
+\end{equation}
+\end{definition}
+
+\subsection{Drawdown Analysis}
+
+\begin{definition}[Maximum Drawdown]
+Let $V_t$ be the portfolio equity curve. The drawdown at time $t$ is:
+\begin{equation}
+    \text{DD}(t) = \frac{V_t - \max_{s \leq t} V_s}{\max_{s \leq t} V_s} = \frac{V_t}{\text{HWM}(t)} - 1,
+    \label{eq:drawdown}
+\end{equation}
+where $\text{HWM}(t) = \max_{s \leq t} V_s$ is the running high-water mark. The maximum drawdown is:
+\begin{equation}
+    \text{MDD} = \min_{t \in [1, T]} \text{DD}(t).
+    \label{eq:mdd}
+\end{equation}
+\end{definition}
+
+\subsection{Tail Risk Measures}
+
+For empirical (historical simulation) estimation with $T$ return observations:
+\begin{align}
+    \VaR_\alpha &= -\hat{F}^{-1}(1 - \alpha) = -\text{Percentile}\bigl(\{r_t\},\; (1-\alpha) \times 100\bigr),
+    \label{eq:var-hist} \\
+    \CVaR_\alpha &= -\frac{1}{|\mathcal{T}_\alpha|} \sum_{t \in \mathcal{T}_\alpha} r_t,
+    \qquad \mathcal{T}_\alpha = \{t : r_t \leq -\VaR_\alpha\}.
+    \label{eq:cvar-hist}
+\end{align}
+
+\subsection{Higher Moments}
+
+\begin{align}
+    \text{Skewness} &= \frac{1}{T} \sum_{t=1}^{T} \left(\frac{r_t - \bar{r}}{\hat{\sigma}}\right)^3,
+    \label{eq:skewness} \\
+    \text{Excess Kurtosis} &= \frac{1}{T} \sum_{t=1}^{T} \left(\frac{r_t - \bar{r}}{\hat{\sigma}}\right)^4 - 3.
+    \label{eq:kurtosis}
+\end{align}
+
+Crypto returns typically exhibit negative skewness (crash risk) and large positive excess kurtosis ($5$--$15$, vs.\ $\approx 0.5$ for equities).
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Walk-Forward Backtesting}
+\label{sec:backtest}
+
+\subsection{Methodology}
+
+The walk-forward backtester evaluates strategies without look-ahead bias using a rolling training window.
+
+\begin{definition}[No Look-Ahead Guarantee]
+At each rebalance date $\tau_k$, the weight vector is computed using only past data:
+\begin{equation}
+    \bm{w}_{\tau_k} = f\bigl(\{r_t\}_{t=\tau_k - L}^{\tau_k - 1}\bigr),
+    \label{eq:no-lookahead}
+\end{equation}
+where $L$ is the lookback window length (default: 365 days) and $f$ is the chosen optimization strategy.
+\end{definition}
+
+\subsection{Rebalancing Mechanics}
+
+Let $\{\tau_1, \tau_2, \ldots, \tau_K\}$ be the set of rebalance dates (weekly, monthly, or quarterly). Between rebalances, weights drift with market returns:
+\begin{equation}
+    w_{i,t}^{\text{drift}} = \frac{w_{i,t-1}\,(1 + r_{i,t-1})}
+        {\sum_{j=1}^N w_{j,t-1}\,(1 + r_{j,t-1})}.
+    \label{eq:drift}
+\end{equation}
+In the implementation, $r_{i,t}$ are log returns; the expression $(1 + r_{i,t})$ approximates $e^{r_{i,t}}$. For daily returns with $|r| < 0.05$, the approximation error is $\mathcal{O}(r^2) < 0.13\%$.
+
+\subsection{Daily Portfolio Return}
+
+\begin{equation}
+    R_{p,t} = \sum_{i=1}^{N} w_{i,t}\, r_{i,t} = \bm{w}_t^\top \bm{r}_t.
+    \label{eq:portfolio-return}
+\end{equation}
+
+\subsection{Transaction Cost Model}
+
+At each rebalance $\tau_k$, the one-way turnover and cost are:
+\begin{align}
+    \text{Turnover}_k &= \sum_{i=1}^{N} \bigl|w_{i,\tau_k}^{\text{new}} - w_{i,\tau_k}^{\text{drift}}\bigr|,
+    \label{eq:turnover} \\
+    \text{TC}_k &= \text{Turnover}_k \times \frac{c}{10{,}000},
+    \label{eq:tc}
+\end{align}
+where $c$ is the cost in basis points (default: 10~bps). The portfolio value is reduced before applying new weights:
+\begin{equation}
+    V_{\tau_k}^{\text{post}} = V_{\tau_k} \times (1 - \text{TC}_k).
+    \label{eq:tc-apply}
+\end{equation}
+
+\subsection{Equity Curve Construction}
+
+Starting from initial capital $V_0$:
+\begin{equation}
+    V_t = V_{t-1} \times (1 + R_{p,t}), \quad t = 1, 2, \ldots, T.
+    \label{eq:equity}
+\end{equation}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Summary of Strategies}
+\label{sec:summary}
+
+Table~\ref{tab:strategies} summarizes the seven allocation strategies and their key mathematical properties.
+
+\begin{table}[H]
+\centering
+\caption{Comparison of portfolio optimization strategies.}
+\label{tab:strategies}
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Strategy} & \textbf{Requires $\bm{\Sigma}^{-1}$} & \textbf{Requires $\bm{\mu}$} & \textbf{Convex} & \textbf{Eq.\ ref} \\
+\midrule
+Equal Weight         & No  & No  & N/A  & \eqref{eq:equal-weight} \\
+Markowitz MVO        & Yes & Yes & QP   & \eqref{eq:mvo} \\
+GARCH-Enhanced GMV   & Yes & No  & QP   & \eqref{eq:gmv}, \eqref{eq:garch-cov} \\
+HRP                  & No  & No  & N/A  & Alg.~\ref{alg:hrp} \\
+Risk Parity (ERC)    & No  & No  & Yes  & \eqref{eq:spinu} \\
+Mean-CVaR            & No  & Yes & LP   & \eqref{eq:cvar-lp} \\
+Black--Litterman     & Yes & Yes & QP   & \eqref{eq:bl-posterior} \\
+Regime-Aware         & Var & Var & Var  & \eqref{eq:regime-switch} \\
+\bottomrule
+\end{tabular}
+\smallskip
+
+\noindent\small N/A indicates the strategy is not formulated as an optimization problem: Equal Weight is a closed-form rule, and HRP is a greedy recursive algorithm.
+\end{table}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+
+This paper has presented the complete mathematical framework underlying our multi-strategy cryptocurrency portfolio optimization system. The diversity of approaches---from classical mean-variance theory to machine-learning-based regime detection---provides complementary perspectives on the risk--return trade-off in crypto markets. Each strategy addresses specific limitations of the others: HRP mitigates MVO's sensitivity to estimation error, CVaR captures tail risk that variance ignores, Black--Litterman incorporates on-chain fundamental signals, and regime-aware allocation adapts dynamically to changing market conditions. The walk-forward backtesting framework enables rigorous, bias-free comparison of all strategies under realistic transaction cost assumptions.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{thebibliography}{99}
+
+\bibitem{markowitz1952}
+H.~Markowitz, ``Portfolio Selection,''
+\emph{The Journal of Finance}, vol.~7, no.~1, pp.~77--91, 1952.
+
+\bibitem{sharpe1966}
+W.~F.~Sharpe, ``Mutual Fund Performance,''
+\emph{The Journal of Business}, vol.~39, no.~1, pp.~119--138, 1966.
+
+\bibitem{black1992}
+F.~Black and R.~Litterman, ``Global Portfolio Optimization,''
+\emph{Financial Analysts Journal}, vol.~48, no.~5, pp.~28--43, 1992.
+
+\bibitem{he1999}
+G.~He and R.~Litterman, ``The Intuition Behind Black-Litterman Model Portfolios,''
+Goldman Sachs Investment Management Research, 1999.
+
+\bibitem{glosten1993}
+L.~R.~Glosten, R.~Jagannathan, and D.~E.~Runkle,
+``On the Relation Between the Expected Value and the Volatility of the Nominal Excess Return on Stocks,''
+\emph{The Journal of Finance}, vol.~48, no.~5, pp.~1779--1801, 1993.
+
+\bibitem{bollerslev1990}
+T.~Bollerslev, ``Modelling the Coherence in Short-Run Nominal Exchange Rates: A Multivariate Generalized ARCH Model,''
+\emph{The Review of Economics and Statistics}, vol.~72, no.~3, pp.~498--505, 1990.
+
+\bibitem{lopezdeprado2016}
+M.~L\'opez de Prado, ``Building Diversified Portfolios that Outperform Out-of-Sample,''
+\emph{The Journal of Portfolio Management}, vol.~42, no.~4, pp.~59--69, 2016.
+
+\bibitem{maillard2010}
+S.~Maillard, T.~Roncalli, and J.~Te\"il\'etche,
+``The Properties of Equally Weighted Risk Contribution Portfolios,''
+\emph{The Journal of Portfolio Management}, vol.~36, no.~4, pp.~60--70, 2010.
+
+\bibitem{spinu2013}
+F.~Spinu, ``An Algorithm for Computing Risk Parity Weights,''
+SSRN Working Paper 2297383, 2013.
+
+\bibitem{rockafellar2000}
+R.~T.~Rockafellar and S.~Uryasev, ``Optimization of Conditional Value-at-Risk,''
+\emph{Journal of Risk}, vol.~2, no.~3, pp.~21--41, 2000.
+
+\bibitem{artzner1999}
+P.~Artzner, F.~Delbaen, J.-M.~Eber, and D.~Heath,
+``Coherent Measures of Risk,''
+\emph{Mathematical Finance}, vol.~9, no.~3, pp.~203--228, 1999.
+
+\bibitem{demiguel2009}
+V.~DeMiguel, L.~Garlappi, and R.~Uppal,
+``Optimal Versus Naive Diversification: How Inefficient Is the 1/N Portfolio Strategy?''
+\emph{The Review of Financial Studies}, vol.~22, no.~5, pp.~1915--1953, 2009.
+
+\bibitem{rabiner1989}
+L.~R.~Rabiner, ``A Tutorial on Hidden Markov Models and Selected Applications in Speech Recognition,''
+\emph{Proceedings of the IEEE}, vol.~77, no.~2, pp.~257--286, 1989.
+
+\bibitem{baum1970}
+L.~E.~Baum, T.~Petrie, G.~Soules, and N.~Weiss,
+``A Maximization Technique Occurring in the Statistical Analysis of Probabilistic Functions of Markov Chains,''
+\emph{The Annals of Mathematical Statistics}, vol.~41, no.~1, pp.~164--171, 1970.
+
+\bibitem{viterbi1967}
+A.~J.~Viterbi, ``Error Bounds for Convolutional Codes and an Asymptotically Optimum Decoding Algorithm,''
+\emph{IEEE Transactions on Information Theory}, vol.~13, no.~2, pp.~260--269, 1967.
+
+\bibitem{ang2004}
+A.~Ang and G.~Bekaert, ``How Regimes Affect Asset Allocation,''
+\emph{Financial Analysts Journal}, vol.~60, no.~2, pp.~86--99, 2004.
+
+\bibitem{ledoit2004}
+O.~Ledoit and M.~Wolf, ``A Well-Conditioned Estimator for Large-Dimensional Covariance Matrices,''
+\emph{Journal of Multivariate Analysis}, vol.~88, no.~2, pp.~365--411, 2004.
+
+\bibitem{ledoit2003}
+O.~Ledoit and M.~Wolf, ``Honey, I Shrunk the Sample Covariance Matrix,''
+\emph{The Journal of Portfolio Management}, vol.~30, no.~4, pp.~110--119, 2004.
+
+\bibitem{sortino1991}
+F.~A.~Sortino and R.~van der Meer, ``Downside Risk,''
+\emph{The Journal of Portfolio Management}, vol.~17, no.~4, pp.~27--31, 1991.
+
+\bibitem{young1991}
+T.~W.~Young, ``Calmar Ratio: A Smoother Tool,''
+\emph{Futures Magazine}, 1991.
+
+\bibitem{keating2002}
+C.~Keating and W.~F.~Shadwick, ``A Universal Performance Measure,''
+\emph{Journal of Performance Measurement}, vol.~6, no.~3, pp.~59--84, 2002.
+
+\bibitem{engle2002}
+R.~Engle, ``Dynamic Conditional Correlation: A Simple Class of Multivariate Generalized Autoregressive Conditional Heteroskedasticity Models,''
+\emph{Journal of Business \& Economic Statistics}, vol.~20, no.~3, pp.~339--350, 2002.
+
+\end{thebibliography}
+
+\end{document}
