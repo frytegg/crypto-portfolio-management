@@ -228,61 +228,14 @@ def _build_overview_tab(
         className="mb-4",
     )
 
-    # Top-10 live price ticker row (id="live-price-row" for live_cb.py updates)
-    live_row = _build_live_price_row(universe[:10])
-
     # Market treemap
     treemap = _build_market_treemap(universe)
 
     # Universe table
     table = _build_universe_table(universe)
 
-    return html.Div([kpi_row, live_row, treemap, html.Hr(), table])
+    return html.Div([kpi_row, treemap, html.Hr(), table])
 
-
-# ---------------------------------------------------------------------------
-# Live price row (top-10)
-# ---------------------------------------------------------------------------
-
-def _build_live_price_row(top_assets: list[UniverseAsset]) -> dbc.Row:
-    """Build a horizontal row showing top-10 asset prices."""
-    badges = []
-    for asset in top_assets:
-        # Try live price from WebSocket cache, fall back to CoinGecko price
-        live = None
-        if asset.binance_symbol:
-            live = get_live_price(asset.binance_symbol)
-        price = live if live is not None else asset.current_price
-
-        color = _pct_color(asset.price_change_24h)
-        badges.append(
-            dbc.Col(
-                html.Div(
-                    [
-                        html.Span(
-                            asset.symbol,
-                            style={"fontWeight": "bold", "marginRight": "4px"},
-                        ),
-                        html.Span(
-                            _fmt_price(price),
-                            style={"marginRight": "4px"},
-                        ),
-                        html.Span(
-                            _fmt_pct(asset.price_change_24h),
-                            style={"color": color, "fontSize": "0.85em"},
-                        ),
-                    ],
-                    className="text-center p-2",
-                    style={
-                        "backgroundColor": COLORS["card_bg"],
-                        "borderRadius": "6px",
-                    },
-                ),
-                className="mb-2",
-            )
-        )
-
-    return dbc.Row(badges, id="live-price-row", className="mb-4 g-2")
 
 
 # ---------------------------------------------------------------------------
@@ -321,9 +274,8 @@ def _build_market_treemap(universe: list[UniverseAsset]) -> dcc.Graph:
         )
     )
     fig.update_layout(
-        **FIGURE_LAYOUT,
+        **{**FIGURE_LAYOUT, "margin": dict(l=10, r=10, t=50, b=10)},
         title="Market Cap Treemap (colored by 24h change)",
-        margin=dict(l=10, r=10, t=50, b=10),
         height=450,
     )
 
@@ -607,7 +559,6 @@ def _build_live_tab(universe_data: list[dict] | None) -> html.Div:
             html.Tbody(rows),
         ],
         bordered=True,
-        dark=True,
         hover=True,
         responsive=True,
         striped=True,

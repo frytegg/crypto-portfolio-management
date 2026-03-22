@@ -21,6 +21,7 @@ _COINGECKO_MARKETS_URL = "https://api.coingecko.com/api/v3/coins/markets"
 STABLECOINS: frozenset[str] = frozenset({
     "tether", "usd-coin", "dai", "binance-usd", "trueusd",
     "first-digital-usd", "usdd", "frax", "paypal-usd",
+    "usds", "wrapped-bitcoin",
 })
 
 
@@ -96,9 +97,27 @@ def _fetch_from_coingecko() -> list[UniverseAsset]:
     raw_coins: list[dict] = resp.json()
     total_fetched = len(raw_coins)
 
-    # Filter out stablecoins
+    # Filter out known stablecoins by ID
     filtered = [coin for coin in raw_coins if coin["id"] not in STABLECOINS]
     stablecoins_removed = total_fetched - len(filtered)
+
+    # Secondary filter: catch unlisted stablecoins by price ~$1.00 AND "USD"/"usd" in name
+    pre_count = len(filtered)
+    keep: list[dict] = []
+    for coin in filtered:
+        price = float(coin.get("current_price", 0) or 0)
+        name = coin.get("name", "")
+        if 0.99 <= price <= 1.01 and ("USD" in name or "usd" in name):
+            log.info(
+                "stablecoin_heuristic_filtered",
+                coingecko_id=coin["id"],
+                name=name,
+                price=price,
+            )
+        else:
+            keep.append(coin)
+    filtered = keep
+    stablecoins_removed += pre_count - len(filtered)
 
     # Build UniverseAsset list
     universe: list[UniverseAsset] = []
