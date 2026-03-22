@@ -76,7 +76,7 @@ crypto-portfolio-management/
 │   │   └── tearsheet.py       # QuantStats report generation
 │   ├── data/
 │   │   ├── cache.py           # diskcache (SQLite-backed, 200MB limit)
-│   │   ├── fetcher.py         # Historical OHLCV from yfinance/Binance
+│   │   ├── fetcher.py         # Historical OHLCV from yfinance/Binance/CoinGecko
 │   │   ├── onchain.py         # DeFiLlama TVL, stablecoins, DEX volume
 │   │   ├── price_feed.py      # Binance WebSocket live prices
 │   │   ├── symbol_map.py      # CoinGecko ↔ Binance ↔ yfinance mapping
@@ -247,6 +247,54 @@ The project includes a `Dockerfile` and `Procfile` ready for Render deployment:
 docker build -t crypto-portfolio .
 docker run -p 8050:8050 --env-file .env crypto-portfolio
 ```
+
+---
+
+## Deployment Limitations — Live Demo vs Local
+
+The live demo at [crypto-portfolio-management.onrender.com](https://crypto-portfolio-management.onrender.com/) runs on Render's free tier hosted in the United States. This causes the following limitations that **do not exist** when running locally.
+
+### Data Sources
+
+| Feature | Live Demo | Local |
+|---|---|---|
+| Historical OHLCV | 365 days (CoinGecko fallback) | 730 days (yfinance) |
+| Live price ticker | Disabled | Binance WebSocket |
+| Price data source | CoinGecko (tertiary fallback) | yfinance (primary) |
+
+### Why These Limitations Exist
+
+- **Binance geo-restriction (HTTP 451):** Binance blocks all connections from US-hosted servers (compliance with US regulations). Both the WebSocket live feed and the REST historical data API return HTTP 451 from Render's US infrastructure.
+- **yfinance failure:** Yahoo Finance blocks certain cloud datacenter IPs, causing `YFTzMissingError` for all tickers on Render.
+- **CoinGecko demo key:** The free demo API key limits historical data to 365 days maximum. The `/market_chart?days=730` endpoint requires a paid plan.
+- **Render free tier sleep:** The app sleeps after 15 minutes of inactivity (mitigated by UptimeRobot ping every 5 minutes).
+
+### Running Locally (No Limitations)
+
+When running locally, all limitations above disappear:
+
+- yfinance fetches 730 days of OHLCV data for all assets
+- Binance WebSocket connects and provides live prices every second
+- All 7 optimization strategies use the full 2-year lookback window
+
+```bash
+git clone https://github.com/frytegg/crypto-portfolio-management
+cd crypto-portfolio-management
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env  # add your COINGECKO_API_KEY
+python app.py
+# Open http://localhost:8050
+```
+
+### Impact on Results
+
+The live demo produces slightly different optimization results than local:
+
+- Efficient frontier computed on 365 days instead of 730 (less historical context)
+- GARCH models fitted on 365 observations (still statistically valid — minimum is 180)
+- Backtest engine limited to 365-day lookback window
+- All qualitative behaviors (regime detection, strategy ranking, risk metrics) remain valid
 
 ---
 
