@@ -204,13 +204,13 @@ def render_garch_asset(
         return html.Div([
             # Chart + cards row
             dbc.Row([
-                dbc.Col(dcc.Graph(figure=vol_chart, config={"displayModeBar": False}), md=8),
+                dbc.Col(dcc.Graph(figure=vol_chart, config={"displayModeBar": False, "displaylogo": False}), md=8),
                 dbc.Col([forecast_card, params_table], md=4),
             ], className="mb-4"),
             # Heatmap
             dbc.Row([
                 dbc.Col(
-                    dcc.Graph(figure=heatmap, config={"displayModeBar": False}),
+                    dcc.Graph(figure=heatmap, config={"displayModeBar": False, "displaylogo": False}),
                     md=12,
                 ),
             ]),

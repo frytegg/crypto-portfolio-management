@@ -68,7 +68,15 @@ def create_layout() -> dbc.Container:
             ),
             # Live price ticker row — intentionally OUTSIDE dcc.Loading
             # so the 5-second interval updates don't trigger a loading spinner.
-            dbc.Row(id="live-price-row", className="mb-4 g-2"),
+            dbc.Row(
+                id="live-price-row",
+                className="mb-2 mt-2 g-2",
+                style={
+                    "borderBottom": "1px solid #333",
+                    "paddingBottom": "8px",
+                    "marginBottom": "12px",
+                },
+            ),
             # Tab content container wrapped in loading spinner
             dcc.Loading(
                 id="loading-tab-content",

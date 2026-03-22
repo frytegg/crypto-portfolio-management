@@ -298,15 +298,15 @@ def _build_backtest_results(result: BacktestResult) -> html.Div:
     return html.Div([
         kpi_row,
         dbc.Row([
-            dbc.Col(dcc.Graph(figure=equity_fig), md=12),
+            dbc.Col(dcc.Graph(figure=equity_fig, config={"displayModeBar": False, "displaylogo": False}), md=12),
         ], className="mb-3"),
         dbc.Row([
-            dbc.Col(dcc.Graph(figure=dd_fig), md=6),
-            dbc.Col(dcc.Graph(figure=monthly_fig), md=6),
+            dbc.Col(dcc.Graph(figure=dd_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
+            dbc.Col(dcc.Graph(figure=monthly_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
         ], className="mb-3"),
         dbc.Row([
-            dbc.Col(dcc.Graph(figure=turnover_fig), md=6),
-            dbc.Col(dcc.Graph(figure=weights_fig), md=6),
+            dbc.Col(dcc.Graph(figure=turnover_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
+            dbc.Col(dcc.Graph(figure=weights_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
         ], className="mb-3"),
         dbc.Row([
             dbc.Col(metrics_table, md=12),

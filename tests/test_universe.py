@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.data.universe import STABLECOINS, UniverseAsset, fetch_universe
+from core.data.universe import EXCLUDED_ASSETS, UniverseAsset, fetch_universe
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ class TestFetchUniverse:
 
         assert len(result) == 8
         for asset in result:
-            assert asset.coingecko_id not in STABLECOINS
+            assert asset.coingecko_id not in EXCLUDED_ASSETS
 
     @patch("core.data.universe.cache_get_or_fetch")
     @patch("core.data.universe.requests.get")
@@ -286,10 +286,10 @@ class TestFetchUniverse:
 
     @patch("core.data.universe.cache_get_or_fetch")
     @patch("core.data.universe.requests.get")
-    def test_unmapped_asset_gets_fallback_ticker(
+    def test_unmapped_asset_dropped_no_data_source(
         self, mock_get: MagicMock, mock_cache: MagicMock
     ) -> None:
-        """Assets not in symbol_map get a fallback {SYMBOL}-USD yfinance ticker."""
+        """Assets with no yfinance mapping AND no Binance symbol are dropped."""
         mock_cache.side_effect = lambda key, fetch_fn, ttl: fetch_fn()
 
         # Use a CoinGecko ID that's NOT in the symbol_map
@@ -302,9 +302,8 @@ class TestFetchUniverse:
 
         result = fetch_universe()
 
-        assert len(result) == 1
-        assert result[0].yfinance_ticker == "XYZ-USD"
-        assert result[0].binance_symbol is None
+        # No yfinance mapping + no Binance symbol → filtered out
+        assert len(result) == 0
 
 
 # ---------------------------------------------------------------------------
