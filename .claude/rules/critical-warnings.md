@@ -75,7 +75,7 @@ WARNING 11: 24-hour hard disconnect is mandatory to handle
   The reconnect loop MUST be implemented. This is not optional.
   Recommended: proactive reconnect at 23.5h to avoid the hard disconnect.
 
-## Deployment (Procfile, Dockerfile, railway.toml)
+## Deployment (Procfile, Dockerfile, render.yaml)
 
 WARNING 12: Worker count is critical for WebSocket correctness
   CORRECT:   gunicorn app:server --workers 1 --threads 4

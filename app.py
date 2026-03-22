@@ -36,7 +36,7 @@ app = dash.Dash(
 )
 server = app.server  # Flask server for gunicorn
 
-# Health endpoint — used by Railway / load balancers / uptime monitors
+# Health endpoint — used by Render / load balancers / uptime monitors
 @server.route("/health")
 def health():
     return jsonify({"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}), 200
