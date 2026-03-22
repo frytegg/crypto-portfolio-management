@@ -189,10 +189,32 @@ def run_backtest(
                         turnover=round(turnover, 4),
                         cost_pct=round(cost * 100, 4),
                     )
-                except Exception:
-                    log.exception(
-                        "strategy_failed_at_rebalance", date=str(date.date()),
+                except Exception as exc:
+                    log.warning(
+                        "strategy_failed_fallback_to_equal_weight",
+                        date=str(date.date()),
+                        error=str(exc),
                     )
+                    from core.optimization.equal_weight import optimize_equal_weight
+                    result = optimize_equal_weight(training_returns)
+                    new_weights = result.weights.reindex(assets, fill_value=0.0)
+
+                    weight_sum = new_weights.sum()
+                    if weight_sum > 0:
+                        new_weights = new_weights / weight_sum
+
+                    turnover = float(np.abs(new_weights - weights_current).sum())
+                    cost = turnover * config.transaction_cost_bps / 10_000
+                    portfolio_value *= (1 - cost)
+                    total_costs += cost * portfolio_value
+
+                    weights_current = new_weights
+                    actual_rebalance_dates.append(date)
+
+                    weights_records.append(
+                        {"date": date, **weights_current.to_dict()}
+                    )
+                    turnover_records.append({"date": date, "turnover": turnover})
 
         # --- Daily portfolio return (drift with market) ---
         day_returns = bt_returns.loc[date]
