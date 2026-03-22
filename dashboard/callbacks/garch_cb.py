@@ -49,9 +49,12 @@ def build_garch_tab(returns_summary: dict | None) -> html.Div:
                 dcc.Dropdown(
                     id="garch-asset-dropdown",
                     options=[{"label": c, "value": c} for c in columns],
-                    value=columns[0] if columns else None,
+                    placeholder="Select an asset",
                     clearable=False,
+                    persistence=True,
+                    persistence_type="session",
                     className="mb-3",
+                    style={"color": "#AAAAAA"},
                 ),
             ], md=3),
             dbc.Col([

@@ -8,11 +8,14 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timezone
 
+import numpy as np
+import pandas as pd
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from dash import Input, Output, callback, dash_table, dcc, html, no_update
+from dash import Input, Output, State, callback, dash_table, dcc, html, no_update
 import structlog
 
+from core.config import settings
 from core.data.cache import cache, get_live_price
 from core.data.fetcher import fetch_historical_data
 from core.data.universe import UniverseAsset, fetch_universe
@@ -86,6 +89,14 @@ def load_startup_data(_active_tab: str) -> tuple:
     try:
         universe = fetch_universe()
         prices, returns = fetch_historical_data(universe)
+
+        # Store prices and returns individually so all callbacks can read them
+        # via cache.get("prices") / cache.get("returns"). The fetcher caches the
+        # tuple under "historical_prices_and_returns", but callbacks expect these
+        # shorthand keys.
+        cache.set("prices", prices, expire=settings.CACHE_TTL_PRICES)
+        cache.set("returns", returns, expire=settings.CACHE_TTL_PRICES)
+        log.info("returns_store_populated", shape=returns.shape)
 
         universe_data = [asdict(a) for a in universe]
         returns_summary = {
@@ -382,9 +393,25 @@ def _build_universe_table(universe: list[UniverseAsset]) -> html.Div:
 # Risk Dashboard tab (Tab 5)
 # ---------------------------------------------------------------------------
 
+_STRATEGY_OPTIONS = [
+    {"label": "Equal Weight", "value": "equal_weight"},
+    {"label": "Markowitz MVO", "value": "markowitz"},
+    {"label": "GARCH-GMV", "value": "garch_gmv"},
+    {"label": "Hierarchical Risk Parity", "value": "hrp"},
+    {"label": "Equal Risk Contribution", "value": "risk_parity"},
+    {"label": "Mean-CVaR", "value": "cvar"},
+    {"label": "Black-Litterman", "value": "black_litterman"},
+    {"label": "Regime-Aware", "value": "regime_aware"},
+]
+
+_STRATEGY_DISPLAY_NAMES: dict[str, str] = {
+    o["value"]: o["label"] for o in _STRATEGY_OPTIONS
+}
+
+
 def _build_risk_tab(returns_summary: dict | None) -> html.Div:
-    """Build the Risk Dashboard tab with correlation heatmap, drawdown,
-    rolling Sharpe, and rolling volatility charts."""
+    """Build the Risk Dashboard tab with strategy selector, correlation heatmap,
+    drawdown, rolling Sharpe, and rolling volatility charts."""
     if not returns_summary or not returns_summary.get("columns"):
         return html.Div(
             dbc.Spinner(
@@ -401,90 +428,180 @@ def _build_risk_tab(returns_summary: dict | None) -> html.Div:
             className="mt-3",
         )
 
-    try:
-        import numpy as np
-        import plotly.graph_objects as go_
-        from dashboard.components.correlation_heatmap import create_correlation_heatmap
-        from dashboard.components.drawdown_chart import create_drawdown_chart
+    # --- Correlation heatmap (asset-level, not strategy-dependent) ---
+    from dashboard.components.correlation_heatmap import create_correlation_heatmap
+    corr_fig = create_correlation_heatmap(returns)
 
-        # --- Correlation heatmap ---
-        corr_fig = create_correlation_heatmap(returns)
+    _no_bar = {"displayModeBar": False, "displaylogo": False}
 
-        # --- Equal-weight portfolio for drawdown/rolling stats ---
-        n_assets = len(returns.columns)
-        port_returns = (returns * (1.0 / n_assets)).sum(axis=1)
-        equity = (1 + port_returns).cumprod()
-        dd_series = equity / equity.cummax() - 1
+    return html.Div([
+        html.H4("Risk Dashboard", className="mb-3"),
 
-        dd_fig = create_drawdown_chart({"Equal Weight Portfolio": dd_series})
+        # Strategy selector
+        dbc.Row([
+            dbc.Col([
+                html.Label("Strategy for Risk Metrics", className="fw-bold mb-1"),
+                dcc.Dropdown(
+                    id="risk-strategy-selector",
+                    options=_STRATEGY_OPTIONS,
+                    placeholder="Select a strategy",
+                    clearable=False,
+                    persistence=True,
+                    persistence_type="session",
+                    style={"color": "#AAAAAA"},
+                ),
+            ], md=3),
+            dbc.Col([
+                html.P(
+                    "Select a strategy to view its drawdown and rolling metrics. "
+                    "Run optimization first for non-equal-weight strategies.",
+                    className="text-muted small mt-3",
+                ),
+            ], md=9),
+        ], className="mb-3"),
 
-        # --- Rolling 30d Sharpe ---
-        window = 30
-        roll_mean = port_returns.rolling(window).mean()
-        roll_std = port_returns.rolling(window).std()
-        roll_sharpe = (roll_mean / roll_std) * np.sqrt(365)
-        roll_sharpe = roll_sharpe.dropna()
+        dbc.Row([
+            dbc.Col(
+                dcc.Graph(figure=corr_fig, config=_no_bar),
+                md=6,
+            ),
+            dbc.Col(
+                dcc.Graph(id="risk-drawdown-chart", figure=go.Figure(), config=_no_bar),
+                md=6,
+            ),
+        ], className="mb-3"),
 
-        sharpe_fig = go_.Figure()
-        sharpe_fig.add_trace(go_.Scatter(
-            x=roll_sharpe.index,
-            y=roll_sharpe.values,
-            mode="lines",
-            line=dict(color=COLORS["info"], width=1.5),
-            hovertemplate="%{y:.2f}<extra>Rolling Sharpe</extra>",
-        ))
-        sharpe_fig.add_hline(y=0, line_dash="dash", line_color=COLORS["text_muted"])
-        sharpe_fig.update_layout(**FIGURE_LAYOUT)
-        sharpe_fig.update_layout(
-            title="Rolling 30-Day Sharpe Ratio (Equal Weight)",
-            xaxis_title="Date",
-            yaxis_title="Sharpe Ratio",
-            height=350,
-            showlegend=False,
-        )
+        dbc.Row([
+            dbc.Col(
+                dcc.Graph(id="risk-sharpe-chart", figure=go.Figure(), config=_no_bar),
+                md=6,
+            ),
+            dbc.Col(
+                dcc.Graph(id="risk-vol-chart", figure=go.Figure(), config=_no_bar),
+                md=6,
+            ),
+        ], className="mb-3"),
+    ])
 
-        # --- Rolling 30d volatility ---
-        roll_vol = roll_std * np.sqrt(365) * 100  # Annualized, in %
-        roll_vol = roll_vol.dropna()
 
-        vol_fig = go_.Figure()
-        vol_fig.add_trace(go_.Scatter(
-            x=roll_vol.index,
-            y=roll_vol.values,
-            mode="lines",
-            fill="tozeroy",
-            line=dict(color=COLORS["warning"], width=1.5),
-            fillcolor="rgba(243,156,18,0.2)",
-            hovertemplate="%{y:.1f}%<extra>Rolling Vol</extra>",
-        ))
-        vol_fig.update_layout(**FIGURE_LAYOUT)
-        vol_fig.update_layout(
-            title="Rolling 30-Day Annualized Volatility (Equal Weight)",
-            xaxis_title="Date",
-            yaxis_title="Volatility (%)",
-            height=350,
-            showlegend=False,
-        )
+# ---------------------------------------------------------------------------
+# Callback: Update risk charts on strategy selection
+# ---------------------------------------------------------------------------
 
-        return html.Div([
-            html.H4("Risk Dashboard", className="mb-3"),
+@callback(
+    Output("risk-drawdown-chart", "figure"),
+    Output("risk-sharpe-chart", "figure"),
+    Output("risk-vol-chart", "figure"),
+    Input("risk-strategy-selector", "value"),
+    State("strategy-results-store", "data"),
+    prevent_initial_call=True,
+)
+def update_risk_charts(
+    strategy: str | None,
+    strategy_store: dict | None,
+) -> tuple[go.Figure, go.Figure, go.Figure]:
+    """Recompute drawdown, rolling Sharpe, and rolling volatility for the
+    selected strategy."""
+    from dashboard.components.drawdown_chart import create_drawdown_chart
 
-            dbc.Row([
-                dbc.Col(dcc.Graph(figure=corr_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
-                dbc.Col(dcc.Graph(figure=dd_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
-            ], className="mb-3"),
+    returns_df: pd.DataFrame | None = cache.get("returns")
+    if returns_df is None or returns_df.empty or not strategy:
+        empty = go.Figure()
+        empty.update_layout(**FIGURE_LAYOUT, title="Select a strategy")
+        return empty, empty, empty
 
-            dbc.Row([
-                dbc.Col(dcc.Graph(figure=sharpe_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
-                dbc.Col(dcc.Graph(figure=vol_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
-            ], className="mb-3"),
-        ])
-    except Exception as exc:
-        log.error("build_risk_tab_failed", error=str(exc), exc_info=True)
-        return html.Div(
-            dbc.Alert(f"Error building Risk Dashboard: {exc}", color="danger", dismissable=True),
-            className="mt-3",
-        )
+    display_name = _STRATEGY_DISPLAY_NAMES.get(strategy, strategy)
+
+    # Build portfolio return series from weights
+    if strategy == "equal_weight":
+        n = len(returns_df.columns)
+        port_returns = (returns_df * (1.0 / n)).sum(axis=1)
+    else:
+        weights = _get_strategy_weights(strategy, strategy_store, returns_df)
+        if weights is None:
+            empty = go.Figure()
+            empty.update_layout(
+                **FIGURE_LAYOUT,
+                title=f"No weights for {display_name} — run optimization first",
+            )
+            return empty, empty, empty
+        # Align weights to returns columns, filling missing with 0
+        w = pd.Series(weights).reindex(returns_df.columns, fill_value=0.0)
+        port_returns = (returns_df * w).sum(axis=1)
+
+    # --- Drawdown ---
+    equity = (1 + port_returns).cumprod()
+    dd_series = equity / equity.cummax() - 1
+    dd_fig = create_drawdown_chart({f"{display_name} Portfolio": dd_series})
+
+    # --- Rolling 30d Sharpe ---
+    window = 30
+    roll_mean = port_returns.rolling(window).mean()
+    roll_std = port_returns.rolling(window).std()
+    roll_sharpe = (roll_mean / roll_std) * np.sqrt(365)
+    roll_sharpe = roll_sharpe.dropna()
+
+    sharpe_fig = go.Figure()
+    sharpe_fig.add_trace(go.Scatter(
+        x=roll_sharpe.index,
+        y=roll_sharpe.values,
+        mode="lines",
+        line=dict(color=COLORS["info"], width=1.5),
+        hovertemplate="%{y:.2f}<extra>Rolling Sharpe</extra>",
+    ))
+    sharpe_fig.add_hline(y=0, line_dash="dash", line_color=COLORS["text_muted"])
+    sharpe_fig.update_layout(**FIGURE_LAYOUT)
+    sharpe_fig.update_layout(
+        title=f"Rolling 30-Day Sharpe Ratio ({display_name})",
+        xaxis_title="Date",
+        yaxis_title="Sharpe Ratio",
+        height=350,
+        showlegend=False,
+    )
+
+    # --- Rolling 30d volatility ---
+    roll_vol = roll_std * np.sqrt(365) * 100
+    roll_vol = roll_vol.dropna()
+
+    vol_fig = go.Figure()
+    vol_fig.add_trace(go.Scatter(
+        x=roll_vol.index,
+        y=roll_vol.values,
+        mode="lines",
+        fill="tozeroy",
+        line=dict(color=COLORS["warning"], width=1.5),
+        fillcolor="rgba(243,156,18,0.2)",
+        hovertemplate="%{y:.1f}%<extra>Rolling Vol</extra>",
+    ))
+    vol_fig.update_layout(**FIGURE_LAYOUT)
+    vol_fig.update_layout(
+        title=f"Rolling 30-Day Annualized Volatility ({display_name})",
+        xaxis_title="Date",
+        yaxis_title="Volatility (%)",
+        height=350,
+        showlegend=False,
+    )
+
+    return dd_fig, sharpe_fig, vol_fig
+
+
+def _get_strategy_weights(
+    strategy: str,
+    strategy_store: dict | None,
+    returns_df: pd.DataFrame,
+) -> dict[str, float] | None:
+    """Retrieve strategy weights from the client store or cache."""
+    # Try client-side store first (from optimization tab)
+    if strategy_store and strategy in strategy_store:
+        return strategy_store[strategy].get("weights")
+
+    # Try precached equal_weight
+    if strategy == "equal_weight":
+        precached = cache.get("precached_equal_weight")
+        if precached:
+            return precached.get("weights")
+
+    return None
 
 
 # ---------------------------------------------------------------------------

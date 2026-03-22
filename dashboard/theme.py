@@ -68,15 +68,18 @@ FIGURE_LAYOUT: dict = {
     "plot_bgcolor": "rgba(0,0,0,0)",
     "font": {"color": "#AAAAAA", "family": "Inter, -apple-system, sans-serif"},
     "margin": {"l": 60, "r": 30, "t": 50, "b": 50},
-    "xaxis": {"gridcolor": COLORS["grid"], "zerolinecolor": COLORS["grid"]},
-    "yaxis": {"gridcolor": COLORS["grid"], "zerolinecolor": COLORS["grid"]},
-    "legend": {"bgcolor": "rgba(0,0,0,0)", "font": {"size": 11}},
     "colorway": list(STRATEGY_COLORS.values()),
 }
 
 
 def load_figure_template() -> None:
     """Register custom Plotly template. Call once at startup."""
-    custom_template = go.layout.Template(layout=go.Layout(**FIGURE_LAYOUT))
+    template_layout = {
+        **FIGURE_LAYOUT,
+        "xaxis": {"gridcolor": COLORS["grid"], "zerolinecolor": COLORS["grid"]},
+        "yaxis": {"gridcolor": COLORS["grid"], "zerolinecolor": COLORS["grid"]},
+        "legend": {"bgcolor": "rgba(0,0,0,0)", "font": {"size": 11}},
+    }
+    custom_template = go.layout.Template(layout=go.Layout(**template_layout))
     pio.templates["portfolio_dark"] = custom_template
     pio.templates.default = "portfolio_dark"

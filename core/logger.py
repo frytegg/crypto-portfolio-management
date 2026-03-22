@@ -19,6 +19,13 @@ def setup_logging() -> None:
     is_production = settings.APP_ENV == "production"
     log_level = getattr(logging, settings.APP_LOG_LEVEL.upper(), logging.INFO)
 
+    # Force UTF-8 on stdout/stderr to prevent UnicodeEncodeError on Windows
+    # (cp1252 can't encode structlog's colored output or traceback characters)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     # Configure stdlib logging (for third-party libs that use it)
     logging.basicConfig(
         format="%(message)s",
