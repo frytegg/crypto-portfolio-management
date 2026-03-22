@@ -1,4 +1,7 @@
-"""Historical OHLCV data fetcher -- yfinance primary, Binance REST fallback.
+"""Historical OHLCV data fetcher -- yfinance primary, Binance REST fallback, CoinGecko tertiary.
+
+Fallback chain: yfinance → Binance REST → CoinGecko market_chart.
+CoinGecko calls are rate-limited (2.5s between calls) and run sequentially.
 
 Data cleaning pipeline:
 1. Forward-fill gaps up to 5 consecutive days
@@ -9,6 +12,7 @@ Data cleaning pipeline:
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -32,6 +36,8 @@ _MIN_OBSERVATIONS = 180
 _MAX_NAN_RATIO = 0.20
 _FFILL_LIMIT = 5
 _BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+_COINGECKO_MARKET_CHART_URL = "https://api.coingecko.com/api/v3/coins/{coingecko_id}/market_chart"
+_COINGECKO_RATE_LIMIT_DELAY = 2.5  # seconds between calls (30 calls/min on demo key)
 
 
 def fetch_historical_data(
@@ -41,8 +47,8 @@ def fetch_historical_data(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Download 2yr daily OHLCV for all universe assets.
 
-    Primary source is yfinance; assets that fail yfinance fall back to Binance REST.
-    Results are cached with a 4-hour TTL.
+    Primary source is yfinance; assets that fail yfinance fall back to Binance REST,
+    then to CoinGecko historical as a tertiary fallback. Results are cached with a 4-hour TTL.
 
     Returns:
         prices: DatetimeIndex DataFrame, columns=ticker symbols (e.g. "BTC"), values=close prices
@@ -68,7 +74,7 @@ def fetch_historical_data(
 def _fetch_and_clean(
     universe: list[UniverseAsset], lookback_days: int
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Orchestrate fetching from yfinance + Binance fallback, then clean."""
+    """Orchestrate fetching from yfinance + Binance + CoinGecko fallback, then clean."""
     end_date = datetime.now()
     start_date = end_date - timedelta(days=lookback_days)
     start_str = start_date.strftime("%Y-%m-%d")
@@ -141,6 +147,51 @@ def _fetch_and_clean(
         prices = prices.ffill(limit=_FFILL_LIMIT)
         log.info("binance_only_prices_built", assets=len(prices.columns), rows=len(prices))
 
+    # Tertiary fallback: CoinGecko historical for assets still missing
+    still_failed: list[UniverseAsset] = []
+    for asset in universe:
+        display = get_display_symbol(asset.coingecko_id)
+        has_data = (
+            not prices.empty
+            and display in prices.columns
+            and not prices[display].isna().all()
+        )
+        if not has_data:
+            still_failed.append(asset)
+
+    coingecko_fallback_count = 0
+    coingecko_series_list: list[pd.Series] = []
+    if still_failed:
+        log.info(
+            "coingecko_fallback_start",
+            assets=len(still_failed),
+            msg=f"Attempting CoinGecko fallback for {len(still_failed)} assets",
+        )
+        for i, asset in enumerate(still_failed):
+            display = get_display_symbol(asset.coingecko_id)
+            # Rate-limit: 2.5s between calls (30 calls/min on demo key)
+            if i > 0:
+                time.sleep(_COINGECKO_RATE_LIMIT_DELAY)
+
+            series = _fetch_coingecko_historical(asset.coingecko_id, days=lookback_days)
+            if series is not None and len(series) > 0:
+                series.name = display
+                if prices.empty:
+                    coingecko_series_list.append(series)
+                else:
+                    aligned = series.reindex(prices.index, method="ffill")
+                    if display in prices.columns:
+                        prices = prices.drop(columns=[display])
+                    prices[display] = aligned
+                coingecko_fallback_count += 1
+                log.info("coingecko_fallback_success", asset=display, rows=len(series))
+
+        # If both yfinance and Binance failed, build from CoinGecko series
+        if prices.empty and coingecko_series_list:
+            prices = pd.concat(coingecko_series_list, axis=1).sort_index()
+            prices = prices.ffill(limit=_FFILL_LIMIT)
+            log.info("coingecko_only_prices_built", assets=len(prices.columns), rows=len(prices))
+
     initial_asset_count = len(prices.columns)
 
     # Clean prices and compute returns
@@ -152,8 +203,9 @@ def _fetch_and_clean(
     log.info(
         "fetch_historical_complete",
         universe_size=len(universe),
-        yfinance_fetched=initial_asset_count - binance_fallback_count,
+        yfinance_fetched=initial_asset_count - binance_fallback_count - coingecko_fallback_count,
         binance_fallback=binance_fallback_count,
+        coingecko_fallback=coingecko_fallback_count,
         assets_dropped=dropped_count,
         final_assets=final_asset_count,
         observations=len(returns),
@@ -259,6 +311,50 @@ def _fetch_binance_rest(symbol: str, limit: int = 730) -> pd.Series | None:
     series = series[~series.index.duplicated(keep="last")]
 
     return series
+
+
+def _fetch_coingecko_historical(coingecko_id: str, days: int = 730) -> pd.Series | None:
+    """Fetch daily close prices from CoinGecko market_chart endpoint.
+
+    Args:
+        coingecko_id: CoinGecko asset ID, e.g. "bitcoin", "ethereum"
+        days: Number of days of history (default 730 = 2 years)
+
+    Returns:
+        pd.Series with DatetimeIndex and daily close prices, or None on failure.
+    """
+    url = _COINGECKO_MARKET_CHART_URL.format(coingecko_id=coingecko_id)
+    params = {"vs_currency": "usd", "days": days, "interval": "daily"}
+    headers: dict[str, str] = {}
+    if settings.COINGECKO_API_KEY:
+        headers["x-cg-demo-api-key"] = settings.COINGECKO_API_KEY
+
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            log.warn(
+                "coingecko_historical_http_error",
+                coingecko_id=coingecko_id,
+                status=resp.status_code,
+            )
+            return None
+
+        data = resp.json().get("prices")
+        if not data:
+            log.warn("coingecko_historical_empty", coingecko_id=coingecko_id)
+            return None
+
+        series = pd.Series(
+            {pd.Timestamp(ts, unit="ms").normalize(): price for ts, price in data},
+            name=coingecko_id,
+        )
+        # Drop duplicate dates (CoinGecko can return an extra partial-day entry)
+        series = series[~series.index.duplicated(keep="last")]
+        return series
+
+    except Exception as exc:
+        log.error("coingecko_historical_failed", coingecko_id=coingecko_id, error=str(exc))
+        return None
 
 
 def _clean_prices(prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
