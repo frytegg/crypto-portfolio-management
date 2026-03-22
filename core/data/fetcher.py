@@ -203,7 +203,7 @@ def _fetch_and_clean(
                         prices = prices.drop(columns=[display])
                     prices[display] = aligned
                 coingecko_fallback_count += 1
-                log.info("coingecko_fallback_success", asset=display, rows=len(series))
+                log.info("coingecko_fallback_success", asset=display, days=len(series))
 
         # If both yfinance and Binance failed, build from CoinGecko series
         if prices.empty and coingecko_series_list:
@@ -332,16 +332,18 @@ def _fetch_binance_rest(symbol: str, limit: int = 730) -> pd.Series | None:
     return series
 
 
-def _fetch_coingecko_historical(coingecko_id: str, days: int = 730) -> pd.Series | None:
+def _fetch_coingecko_historical(coingecko_id: str, days: int = 365) -> pd.Series | None:
     """Fetch daily close prices from CoinGecko market_chart endpoint.
 
     Args:
         coingecko_id: CoinGecko asset ID, e.g. "bitcoin", "ethereum"
-        days: Number of days of history (default 730 = 2 years)
+        days: Number of days of history (max 365 — demo key limit)
 
     Returns:
         pd.Series with DatetimeIndex and daily close prices, or None on failure.
     """
+    # CoinGecko free demo key only supports up to 365 days; 730 returns HTTP 401
+    days = min(days, 365)
     log.info(
         "coingecko_historical_call",
         coingecko_id=coingecko_id,
