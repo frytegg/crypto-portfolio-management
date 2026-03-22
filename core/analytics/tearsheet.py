@@ -28,6 +28,15 @@ def _generate_in_subprocess(
     """Worker function that runs in a separate process."""
     from io import StringIO
 
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    # Use DejaVu Sans (ships with matplotlib) instead of Arial (Windows/Mac only).
+    # Prevents font-not-found warnings and broken charts on Linux (Render, Docker).
+    matplotlib.rcParams["font.family"] = "DejaVu Sans"
+    matplotlib.rcParams["font.sans-serif"] = ["DejaVu Sans", "Liberation Sans", "sans-serif"]
+    plt.rcParams.update({"font.family": "DejaVu Sans"})
+
     import quantstats_lumi as qs
 
     qs.extend_pandas()
