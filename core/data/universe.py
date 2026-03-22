@@ -18,10 +18,21 @@ log = structlog.get_logger(__name__)
 
 _COINGECKO_MARKETS_URL = "https://api.coingecko.com/api/v3/coins/markets"
 
-STABLECOINS: frozenset[str] = frozenset({
+# Assets excluded from the investable universe:
+# - Stablecoins (pegged to USD, no alpha)
+# - Wrapped/tokenized assets (WBTC, gold tokens — track underlying, not independent)
+# - Yield-bearing stablecoins / RWA tokens (price ~$1, not suitable for MVO)
+# - Obscure/illiquid tokens that lack reliable price feeds
+EXCLUDED_ASSETS: frozenset[str] = frozenset({
+    # Stablecoins
     "tether", "usd-coin", "dai", "binance-usd", "trueusd",
-    "first-digital-usd", "usdd", "frax", "paypal-usd",
-    "usds", "wrapped-bitcoin",
+    "first-digital-usd", "usdd", "frax", "paypal-usd", "usds",
+    "global-dollar", "circle-usyc",
+    # Wrapped / tokenized
+    "wrapped-bitcoin", "tether-gold", "pax-gold",
+    # RWA / illiquid / unsuitable for portfolio optimization
+    "figr-heloc", "rain", "world-liberty-financial",
+    "pi-network", "aster", "memecore", "canton-network",
 })
 
 
@@ -97,8 +108,8 @@ def _fetch_from_coingecko() -> list[UniverseAsset]:
     raw_coins: list[dict] = resp.json()
     total_fetched = len(raw_coins)
 
-    # Filter out known stablecoins by ID
-    filtered = [coin for coin in raw_coins if coin["id"] not in STABLECOINS]
+    # Filter out excluded assets by ID
+    filtered = [coin for coin in raw_coins if coin["id"] not in EXCLUDED_ASSETS]
     stablecoins_removed = total_fetched - len(filtered)
 
     # Secondary filter: catch unlisted stablecoins by price ~$1.00 AND "USD"/"usd" in name
@@ -151,12 +162,29 @@ def _fetch_from_coingecko() -> list[UniverseAsset]:
         )
         universe.append(asset)
 
+    # Drop assets with no data source (no yfinance ticker AND no Binance symbol)
+    pre_source_count = len(universe)
+    final_universe: list[UniverseAsset] = []
+    for asset in universe:
+        yf_mapped = get_yfinance_ticker(asset.coingecko_id) is not None
+        if not yf_mapped and asset.binance_symbol is None:
+            log.info(
+                "no_data_source_filtered",
+                coingecko_id=asset.coingecko_id,
+                name=asset.name,
+                symbol=asset.symbol,
+            )
+        else:
+            final_universe.append(asset)
+    no_source_dropped = pre_source_count - len(final_universe)
+
     log.info(
         "coingecko_fetch_complete",
         total_fetched=total_fetched,
-        stablecoins_removed=stablecoins_removed,
+        excluded_removed=stablecoins_removed,
+        no_source_dropped=no_source_dropped,
         unmapped_tickers=skipped_no_ticker,
-        universe_size=len(universe),
+        universe_size=len(final_universe),
     )
 
-    return universe
+    return final_universe

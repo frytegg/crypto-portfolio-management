@@ -137,7 +137,7 @@ def update_onchain_tab(n_clicks: int | None) -> html.Div:
         dbc.Col(
             dcc.Graph(
                 figure=create_tvl_chart(total_tvl, eth_tvl, sol_tvl),
-                config={"displayModeBar": False},
+                config={"displayModeBar": False, "displaylogo": False},
             ),
             md=12,
         ),
@@ -147,14 +147,14 @@ def update_onchain_tab(n_clicks: int | None) -> html.Div:
         dbc.Col(
             dcc.Graph(
                 figure=create_stablecoin_chart(stablecoin_mcap),
-                config={"displayModeBar": False},
+                config={"displayModeBar": False, "displaylogo": False},
             ),
             md=6,
         ),
         dbc.Col(
             dcc.Graph(
                 figure=create_dex_volume_chart(dex_volume),
-                config={"displayModeBar": False},
+                config={"displayModeBar": False, "displaylogo": False},
             ),
             md=6,
         ),

@@ -279,7 +279,7 @@ def _build_market_treemap(universe: list[UniverseAsset]) -> dcc.Graph:
         height=450,
     )
 
-    return dcc.Graph(figure=fig, id="market-treemap", config={"displayModeBar": False})
+    return dcc.Graph(figure=fig, id="market-treemap", config={"displayModeBar": False, "displaylogo": False})
 
 
 # ---------------------------------------------------------------------------
@@ -470,13 +470,13 @@ def _build_risk_tab(returns_summary: dict | None) -> html.Div:
             html.H4("Risk Dashboard", className="mb-3"),
 
             dbc.Row([
-                dbc.Col(dcc.Graph(figure=corr_fig), md=6),
-                dbc.Col(dcc.Graph(figure=dd_fig), md=6),
+                dbc.Col(dcc.Graph(figure=corr_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
+                dbc.Col(dcc.Graph(figure=dd_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
             ], className="mb-3"),
 
             dbc.Row([
-                dbc.Col(dcc.Graph(figure=sharpe_fig), md=6),
-                dbc.Col(dcc.Graph(figure=vol_fig), md=6),
+                dbc.Col(dcc.Graph(figure=sharpe_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
+                dbc.Col(dcc.Graph(figure=vol_fig, config={"displayModeBar": False, "displaylogo": False}), md=6),
             ], className="mb-3"),
         ])
     except Exception as exc:

@@ -85,7 +85,7 @@ def build_optimization_tab(returns_summary: dict | None) -> html.Div:
         ], className="mb-3"),
 
         dbc.Spinner(
-            dcc.Graph(id="efficient-frontier-graph", figure=go.Figure()),
+            dcc.Graph(id="efficient-frontier-graph", figure=go.Figure(), config={"displayModeBar": False, "displaylogo": False}),
             color="info",
             type="border",
         ),
@@ -316,7 +316,7 @@ def render_strategy_results(store_data: dict | None) -> html.Div:
             display_name = data.get("name", name) if (data := store_data.get(name)) else name
             chart = create_weights_bar_chart(w, title=f"{display_name}")
             individual_charts.append(
-                dbc.Col(dcc.Graph(figure=chart, config={"displayModeBar": False}), md=6)
+                dbc.Col(dcc.Graph(figure=chart, config={"displayModeBar": False, "displaylogo": False}), md=6)
             )
 
         # --- C. Equity curves ---
@@ -350,11 +350,11 @@ def render_strategy_results(store_data: dict | None) -> html.Div:
 
             # Grouped weights chart
             html.H5("Weight Comparison", className="mt-4 mb-2"),
-            dcc.Graph(figure=weights_chart, config={"displayModeBar": False}),
+            dcc.Graph(figure=weights_chart, config={"displayModeBar": False, "displaylogo": False}),
 
             # Equity curves
             html.H5("Equity Curves", className="mt-4 mb-2"),
-            dcc.Graph(figure=equity_fig, config={"displayModeBar": False}),
+            dcc.Graph(figure=equity_fig, config={"displayModeBar": False, "displaylogo": False}),
 
             # Individual weight charts
             html.H5("Individual Allocations", className="mt-4 mb-2"),
@@ -362,7 +362,7 @@ def render_strategy_results(store_data: dict | None) -> html.Div:
 
             # Weights heatmap
             html.H5("Weight Heatmap", className="mt-4 mb-2"),
-            dcc.Graph(figure=heatmap_fig, config={"displayModeBar": False}),
+            dcc.Graph(figure=heatmap_fig, config={"displayModeBar": False, "displaylogo": False}),
         ])
     except Exception as exc:
         log.error("render_strategy_results_failed", error=str(exc), exc_info=True)

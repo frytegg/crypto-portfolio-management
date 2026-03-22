@@ -198,7 +198,7 @@ def _build_regime_content(regime_data: dict, btc_col: str) -> html.Div:
         dbc.Row(stat_cards, className="mb-4"),
         dbc.Row([
             dbc.Col(
-                dcc.Graph(figure=regime_chart, config={"displayModeBar": False}),
+                dcc.Graph(figure=regime_chart, config={"displayModeBar": False, "displaylogo": False}),
                 md=8,
             ),
             dbc.Col(transition_table, md=4),
