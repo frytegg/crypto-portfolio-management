@@ -38,5 +38,10 @@ CLAUDE.md
 *.log
 logs/
 
+# LaTeX build artifacts
+*.aux
+*.out
+*.toc
+
 # Spec
 spec_roadmap.md
