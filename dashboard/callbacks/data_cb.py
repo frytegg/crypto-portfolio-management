@@ -76,16 +76,25 @@ def _pct_color(value: float) -> str:
 @callback(
     Output("universe-store", "data"),
     Output("returns-store", "data"),
+    Output("fetch-lock-store", "data"),
     Input("main-tabs", "active_tab"),  # fires on page load
+    State("fetch-lock-store", "data"),
     prevent_initial_call=False,
 )
-def load_startup_data(_active_tab: str) -> tuple:
+def load_startup_data(_active_tab: str, already_loaded: bool) -> tuple:
     """On page load, fetch universe and historical data, store metadata.
 
     This runs once on startup. Universe metadata is serialized to the store
     for use by the table callback. Returns store gets a lightweight summary
     (column names only) since actual DataFrames are read from diskcache.
+
+    The fetch-lock-store prevents duplicate fetches when the callback fires
+    multiple times (e.g. tab initialization + active_tab change).
     """
+    if already_loaded:
+        log.debug("startup_data_already_loaded", msg="skipping duplicate callback")
+        return no_update, no_update, True
+
     try:
         universe = fetch_universe()
         prices, returns = fetch_historical_data(universe)
@@ -115,11 +124,11 @@ def load_startup_data(_active_tab: str) -> tuple:
             assets=len(returns.columns),
             observations=len(returns),
         )
-        return universe_data, returns_summary
+        return universe_data, returns_summary, True
 
     except Exception as exc:
         log.error("startup_data_load_failed", error=str(exc), exc_info=True)
-        return [], {}
+        return [], {}, True
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 """Historical OHLCV data fetcher -- yfinance primary, Binance REST fallback, CoinGecko tertiary.
 
 Fallback chain: yfinance → Binance REST → CoinGecko market_chart.
-CoinGecko calls are rate-limited (2.5s between calls) and run sequentially.
+CoinGecko calls are rate-limited (3s between calls) and run sequentially.
 
 Data cleaning pipeline:
 1. Forward-fill gaps up to 5 consecutive days
@@ -12,6 +12,7 @@ Data cleaning pipeline:
 """
 from __future__ import annotations
 
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -22,11 +23,13 @@ import structlog
 import yfinance as yf
 
 from core.config import settings
-from core.data.cache import cache_get_or_fetch, invalidate
+from core.data.cache import cache, cache_get_or_fetch, invalidate
 from core.data.symbol_map import get_display_symbol
 from core.data.universe import UniverseAsset
 
 log = structlog.get_logger(__name__)
+
+_fetch_lock = threading.Lock()
 
 # Use a browser-like User-Agent to avoid 403 blocks in cloud environments
 _yf_session = requests.Session()
@@ -37,7 +40,7 @@ _MAX_NAN_RATIO = 0.20
 _FFILL_LIMIT = 5
 _BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
 _COINGECKO_MARKET_CHART_URL = "https://api.coingecko.com/api/v3/coins/{coingecko_id}/market_chart"
-_COINGECKO_RATE_LIMIT_DELAY = 2.5  # seconds between calls (30 calls/min on demo key)
+_COINGECKO_RATE_LIMIT_DELAY = 3.0  # seconds between calls (30 calls/min on demo key)
 
 
 def fetch_historical_data(
@@ -50,25 +53,41 @@ def fetch_historical_data(
     Primary source is yfinance; assets that fail yfinance fall back to Binance REST,
     then to CoinGecko historical as a tertiary fallback. Results are cached with a 4-hour TTL.
 
+    Thread-safe: a threading lock prevents concurrent fetches. If a second call arrives
+    while the first is in progress, it waits for completion and returns the cached result.
+
     Returns:
         prices: DatetimeIndex DataFrame, columns=ticker symbols (e.g. "BTC"), values=close prices
         returns: DatetimeIndex DataFrame, columns=ticker symbols, values=daily log returns
     """
-    if lookback_days is None:
-        lookback_days = settings.DEFAULT_LOOKBACK_DAYS
+    if not _fetch_lock.acquire(blocking=False):
+        log.info("fetch_already_in_progress", msg="skipping duplicate call, waiting for first fetch")
+        # Wait for the in-progress fetch to complete, then return cached result
+        _fetch_lock.acquire(blocking=True)
+        _fetch_lock.release()
+        cached = cache.get("historical_prices_and_returns")
+        if cached is not None:
+            return cached
+        return pd.DataFrame(), pd.DataFrame()
 
-    if force_refresh:
-        invalidate("historical_prices")
-        invalidate("historical_returns")
+    try:
+        if lookback_days is None:
+            lookback_days = settings.DEFAULT_LOOKBACK_DAYS
 
-    def _fetch() -> tuple[pd.DataFrame, pd.DataFrame]:
-        return _fetch_and_clean(universe, lookback_days)
+        if force_refresh:
+            invalidate("historical_prices")
+            invalidate("historical_returns")
 
-    return cache_get_or_fetch(
-        key="historical_prices_and_returns",
-        fetch_fn=_fetch,
-        ttl=settings.CACHE_TTL_PRICES,
-    )
+        def _fetch() -> tuple[pd.DataFrame, pd.DataFrame]:
+            return _fetch_and_clean(universe, lookback_days)
+
+        return cache_get_or_fetch(
+            key="historical_prices_and_returns",
+            fetch_fn=_fetch,
+            ttl=settings.CACHE_TTL_PRICES,
+        )
+    finally:
+        _fetch_lock.release()
 
 
 def _fetch_and_clean(
@@ -169,7 +188,7 @@ def _fetch_and_clean(
         )
         for i, asset in enumerate(still_failed):
             display = get_display_symbol(asset.coingecko_id)
-            # Rate-limit: 2.5s between calls (30 calls/min on demo key)
+            # Rate-limit: 3s between calls (30 calls/min on demo key)
             if i > 0:
                 time.sleep(_COINGECKO_RATE_LIMIT_DELAY)
 
@@ -323,11 +342,15 @@ def _fetch_coingecko_historical(coingecko_id: str, days: int = 730) -> pd.Series
     Returns:
         pd.Series with DatetimeIndex and daily close prices, or None on failure.
     """
+    log.info(
+        "coingecko_historical_call",
+        coingecko_id=coingecko_id,
+        key_present=bool(settings.COINGECKO_API_KEY),
+    )
+
     url = _COINGECKO_MARKET_CHART_URL.format(coingecko_id=coingecko_id)
     params = {"vs_currency": "usd", "days": days, "interval": "daily"}
-    headers: dict[str, str] = {}
-    if settings.COINGECKO_API_KEY:
-        headers["x-cg-demo-api-key"] = settings.COINGECKO_API_KEY
+    headers = {"x-cg-demo-api-key": settings.COINGECKO_API_KEY}
 
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=10)
