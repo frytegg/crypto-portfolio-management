@@ -125,6 +125,7 @@ def sample_onchain_data():
         "sol_tvl": sol_tvl,
         "stablecoin_mcap": stablecoin_mcap,
         "dex_volume": dex_volume,
+        "total_crypto_mcap": 2.5e12,  # ~$2.5T total crypto market cap
     }
 
 
@@ -252,11 +253,14 @@ class TestComputeOnchainSignals:
             mock_cache.set = MagicMock()
             signals = compute_onchain_signals(sample_onchain_data)
 
+        # Denominator is total crypto market cap, not DeFi TVL
         expected = (
             sample_onchain_data["stablecoin_mcap"].iloc[-1]
-            / sample_onchain_data["total_tvl"].iloc[-1]
+            / sample_onchain_data["total_crypto_mcap"]
         )
         assert abs(signals.stablecoin_dominance - expected) < 1e-6
+        # Sanity: with $140B stablecoins / $2.5T total = ~5.6%
+        assert 0.01 < signals.stablecoin_dominance < 0.20
 
     def test_computes_stablecoin_supply_change(self, sample_onchain_data):
         with patch("core.data.onchain.cache") as mock_cache:

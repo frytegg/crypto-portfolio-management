@@ -25,6 +25,24 @@ from dashboard.theme import COLORS, FIGURE_LAYOUT, STRATEGY_COLORS
 log = structlog.get_logger(__name__)
 
 
+def _build_date_options(start_date: str, end_date: str) -> list[dict]:
+    """Build monthly date options between start_date and end_date."""
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+    options = []
+    current = pd.Timestamp(year=start.year, month=start.month, day=1)
+    while current <= end:
+        label = current.strftime("%b %Y")
+        value = current.strftime("%Y-%m-%d")
+        options.append({"label": label, "value": value})
+        # Advance by one month
+        if current.month == 12:
+            current = pd.Timestamp(year=current.year + 1, month=1, day=1)
+        else:
+            current = pd.Timestamp(year=current.year, month=current.month + 1, day=1)
+    return options
+
+
 # ---------------------------------------------------------------------------
 # Tab layout builder (called from data_cb.py tab routing)
 # ---------------------------------------------------------------------------
@@ -64,8 +82,11 @@ def build_backtest_tab(returns_summary: dict | None) -> html.Div:
                         dcc.Dropdown(
                             id="bt-strategy-dropdown",
                             options=strategy_options,
-                            value="equal_weight",
+                            placeholder="Select a strategy",
                             clearable=False,
+                            persistence=True,
+                            persistence_type="session",
+                            style={"color": "#AAAAAA"},
                         ),
                     ], md=3),
                     dbc.Col([
@@ -77,20 +98,37 @@ def build_backtest_tab(returns_summary: dict | None) -> html.Div:
                                 {"label": "Monthly", "value": "monthly"},
                                 {"label": "Quarterly", "value": "quarterly"},
                             ],
-                            value="monthly",
+                            placeholder="Select frequency",
                             clearable=False,
+                            persistence=True,
+                            persistence_type="session",
+                            style={"color": "#AAAAAA"},
                         ),
                     ], md=2),
                     dbc.Col([
-                        html.Label("Date Range", className="fw-bold mb-1"),
-                        dcc.DatePickerRange(
-                            id="bt-date-range",
-                            start_date=start_date,
-                            end_date=end_date,
-                            display_format="YYYY-MM-DD",
-                            className="d-block",
+                        html.Label("Start Date", className="fw-bold mb-1"),
+                        dcc.Dropdown(
+                            id="bt-start-date-dropdown",
+                            options=_build_date_options(start_date, end_date),
+                            value=start_date,
+                            clearable=False,
+                            persistence=True,
+                            persistence_type="session",
+                            style={"color": "#AAAAAA"},
                         ),
-                    ], md=3),
+                    ], md=2),
+                    dbc.Col([
+                        html.Label("End Date", className="fw-bold mb-1"),
+                        dcc.Dropdown(
+                            id="bt-end-date-dropdown",
+                            options=_build_date_options(start_date, end_date),
+                            value=end_date,
+                            clearable=False,
+                            persistence=True,
+                            persistence_type="session",
+                            style={"color": "#AAAAAA"},
+                        ),
+                    ], md=2),
                     dbc.Col([
                         html.Label("Transaction Cost (bps)", className="fw-bold mb-1"),
                         dbc.Input(
@@ -173,8 +211,8 @@ def build_backtest_tab(returns_summary: dict | None) -> html.Div:
     Input("bt-run-btn", "n_clicks"),
     State("bt-strategy-dropdown", "value"),
     State("bt-rebalance-dropdown", "value"),
-    State("bt-date-range", "start_date"),
-    State("bt-date-range", "end_date"),
+    State("bt-start-date-dropdown", "value"),
+    State("bt-end-date-dropdown", "value"),
     State("bt-tx-cost-input", "value"),
     State("bt-lookback-slider", "value"),
     State("bt-max-weight-slider", "value"),
@@ -183,8 +221,8 @@ def build_backtest_tab(returns_summary: dict | None) -> html.Div:
 )
 def run_backtest_callback(
     n_clicks: int | None,
-    strategy: str,
-    rebalance_freq: str,
+    strategy: str | None,
+    rebalance_freq: str | None,
     start_date: str,
     end_date: str,
     tx_cost_bps: float,
@@ -195,6 +233,9 @@ def run_backtest_callback(
     """Execute walk-forward backtest and render all result charts."""
     if not n_clicks:
         return no_update, no_update
+
+    strategy = strategy or "equal_weight"
+    rebalance_freq = rebalance_freq or "monthly"
 
     prices = cache.get("prices")
     if prices is None:
@@ -463,11 +504,10 @@ def _build_metrics_table(metrics: dict) -> dbc.Card:
             dbc.Table(
                 [html.Tbody(table_rows)],
                 bordered=True,
-                dark=True,
                 hover=True,
                 responsive=True,
                 size="sm",
-                className="mb-0",
+                className="mb-0 table-dark",
             ),
         ),
     ])

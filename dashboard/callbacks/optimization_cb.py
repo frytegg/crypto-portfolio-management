@@ -57,9 +57,12 @@ def build_optimization_tab(returns_summary: dict | None) -> html.Div:
                         {"label": "Historical", "value": "hist"},
                         {"label": "Oracle Approx. Shrinkage", "value": "oas"},
                     ],
-                    value="ledoit",
+                    placeholder="Select a method",
                     clearable=False,
+                    persistence=True,
+                    persistence_type="session",
                     className="mb-2",
+                    style={"color": "#AAAAAA"},
                 ),
             ], md=3),
             dbc.Col([
@@ -72,6 +75,8 @@ def build_optimization_tab(returns_summary: dict | None) -> html.Div:
                     value=0.15,
                     marks={v: f"{v:.0%}" for v in [0.05, 0.10, 0.15, 0.20, 0.30, 0.50, 1.0]},
                     tooltip={"placement": "bottom", "always_visible": False},
+                    persistence=True,
+                    persistence_type="session",
                 ),
             ], md=5),
             dbc.Col([
@@ -137,7 +142,7 @@ def build_optimization_tab(returns_summary: dict | None) -> html.Div:
 def compute_frontier(
     n_clicks: int | None,
     returns_summary: dict | None,
-    cov_method: str,
+    cov_method: str | None,
     max_weight: float,
 ) -> go.Figure:
     """Compute and render the efficient frontier."""
@@ -147,6 +152,8 @@ def compute_frontier(
     returns_df: pd.DataFrame | None = cache.get("returns")
     if returns_df is None or returns_df.empty:
         return no_update
+
+    cov_method = cov_method or "ledoit"
 
     from core.optimization.markowitz import compute_efficient_frontier
 

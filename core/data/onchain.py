@@ -119,8 +119,27 @@ def _fetch_dex_volume() -> pd.Series:
     return series
 
 
-def _do_fetch_all() -> dict[str, pd.Series]:
-    """Fetch all DeFiLlama endpoints and return structured dict."""
+def _fetch_total_crypto_mcap() -> float:
+    """GET https://api.coingecko.com/api/v3/global -> total crypto market cap (USD).
+
+    This is the correct denominator for stablecoin dominance (not DeFi TVL).
+    Expected: ~$2-3T range.
+    """
+    url = "https://api.coingecko.com/api/v3/global"
+    headers: dict[str, str] = {}
+    if settings.COINGECKO_API_KEY:
+        headers["x-cg-demo-api-key"] = settings.COINGECKO_API_KEY
+
+    resp = requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json().get("data", {})
+    total_mcap = data.get("total_market_cap", {}).get("usd", 0.0)
+    log.info("coingecko_global_fetched", total_crypto_mcap=f"${total_mcap / 1e12:.2f}T")
+    return float(total_mcap)
+
+
+def _do_fetch_all() -> dict:
+    """Fetch all DeFiLlama endpoints + CoinGecko global and return structured dict."""
     log.info("onchain_fetching_all")
 
     total_tvl = _fetch_total_tvl()
@@ -138,12 +157,20 @@ def _do_fetch_all() -> dict[str, pd.Series]:
     dex_volume = _fetch_dex_volume()
     log.info("onchain_fetched", endpoint="dex_volume", points=len(dex_volume))
 
+    # Total crypto market cap for stablecoin dominance denominator
+    try:
+        total_crypto_mcap = _fetch_total_crypto_mcap()
+    except Exception as exc:
+        log.warning("coingecko_global_failed", error=str(exc))
+        total_crypto_mcap = 0.0
+
     return {
         "total_tvl": total_tvl,
         "eth_tvl": eth_tvl,
         "sol_tvl": sol_tvl,
         "stablecoin_mcap": stablecoin_mcap,
         "dex_volume": dex_volume,
+        "total_crypto_mcap": total_crypto_mcap,
     }
 
 
@@ -172,7 +199,12 @@ def _interpret_tvl_momentum(value: float) -> str:
 
 
 def _interpret_stablecoin_dominance(value: float) -> str:
-    """High stablecoin dominance = risk-off (bearish); low = risk-on (bullish)."""
+    """High stablecoin dominance = risk-off (bearish); low = risk-on (bullish).
+
+    With total crypto market cap as denominator, stablecoin dominance is
+    typically ~8-15%. Above 15% signals capital parking in stables (risk-off).
+    Below 8% signals capital deployed into risk assets (risk-on).
+    """
     if value > 0.15:
         return "Bearish"
     if value < 0.08:
@@ -220,9 +252,11 @@ def compute_onchain_signals(onchain_data: dict[str, pd.Series]) -> OnchainSignal
     else:
         tvl_momentum_30d = 0.0
 
-    # Stablecoin dominance: stablecoin mcap / total TVL
-    if len(stablecoin_mcap) > 0 and len(total_tvl) > 0 and total_tvl.iloc[-1] > 0:
-        stablecoin_dominance = stablecoin_mcap.iloc[-1] / total_tvl.iloc[-1]
+    # Stablecoin dominance: stablecoin mcap / total crypto market cap
+    # Uses CoinGecko global endpoint (total crypto ~$2-3T), NOT DeFi TVL (~$100-200B)
+    total_crypto_mcap = onchain_data.get("total_crypto_mcap", 0.0)
+    if len(stablecoin_mcap) > 0 and total_crypto_mcap > 0:
+        stablecoin_dominance = stablecoin_mcap.iloc[-1] / total_crypto_mcap
     else:
         stablecoin_dominance = 0.0
 
