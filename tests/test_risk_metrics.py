@@ -106,23 +106,23 @@ class TestKnownReturns:
     def test_equity_curve_start(self, known_returns: pd.Series) -> None:
         m = compute_risk_metrics(known_returns)
         eq = m["equity_curve"]
-        assert eq.iloc[0] == pytest.approx(1.01, abs=1e-10)
+        # exp(0.01) for log returns
+        assert eq.iloc[0] == pytest.approx(np.exp(0.01), rel=1e-10)
 
     def test_equity_curve_end(self, known_returns: pd.Series) -> None:
         m = compute_risk_metrics(known_returns)
         eq = m["equity_curve"]
-        # (1+0.01)*(1-0.02)*(1+0.03)*(1-0.01)*(1+0.02)
-        expected = 1.01 * 0.98 * 1.03 * 0.99 * 1.02
+        # exp(cumsum) for log returns: exp(0.01 - 0.02 + 0.03 - 0.01 + 0.02)
+        expected = np.exp(0.01 - 0.02 + 0.03 - 0.01 + 0.02)
         assert eq.iloc[-1] == pytest.approx(expected, rel=1e-10)
 
     def test_max_drawdown(self, known_returns: pd.Series) -> None:
-        """After day 1 (equity=1.01), day 2 drops to 1.01*0.98=0.9898.
-        DD = 0.9898/1.01 - 1 = -0.02 exactly.
+        """With log returns: peak = exp(0.01), trough = exp(-0.01).
+        DD = exp(-0.01)/exp(0.01) - 1 = exp(-0.02) - 1.
         """
         m = compute_risk_metrics(known_returns)
-        # Peak after day 1 = 1.01, trough after day 2 = 1.01 * 0.98 = 0.9898
-        # drawdown = 0.9898 / 1.01 - 1 = -0.02 (exact)
-        assert m["max_drawdown"] == pytest.approx(-0.02, abs=1e-6)
+        expected_dd = np.exp(-0.02) - 1  # ≈ -0.019801
+        assert m["max_drawdown"] == pytest.approx(expected_dd, abs=1e-6)
 
     def test_best_and_worst_day(self, known_returns: pd.Series) -> None:
         m = compute_risk_metrics(known_returns)
@@ -190,7 +190,7 @@ class TestEdgeCases:
     def test_single_return(self) -> None:
         m = compute_risk_metrics(pd.Series([0.05]))
         assert m["annualized_return"] == round(0.05 * 365, 6)
-        assert m["equity_curve"].iloc[0] == pytest.approx(1.05)
+        assert m["equity_curve"].iloc[0] == pytest.approx(np.exp(0.05))
 
     def test_custom_ann_factor(self, known_returns: pd.Series) -> None:
         m252 = compute_risk_metrics(known_returns, ann_factor=252)

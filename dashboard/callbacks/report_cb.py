@@ -13,24 +13,9 @@ from dash import Input, Output, State, callback, dcc, html, no_update
 import structlog
 
 from core.data.cache import cache
-from dashboard.theme import COLORS
+from dashboard.theme import COLORS, STRATEGY_OPTIONS, STRATEGY_DISPLAY_NAMES
 
 log = structlog.get_logger(__name__)
-
-_STRATEGY_OPTIONS = [
-    {"label": "Equal Weight", "value": "equal_weight"},
-    {"label": "Markowitz MVO", "value": "markowitz"},
-    {"label": "GARCH-GMV", "value": "garch_gmv"},
-    {"label": "Hierarchical Risk Parity", "value": "hrp"},
-    {"label": "Equal Risk Contribution", "value": "risk_parity"},
-    {"label": "Mean-CVaR", "value": "cvar"},
-    {"label": "Black-Litterman", "value": "black_litterman"},
-    {"label": "Regime-Aware", "value": "regime_aware"},
-]
-
-_STRATEGY_DISPLAY_NAMES: dict[str, str] = {
-    o["value"]: o["label"] for o in _STRATEGY_OPTIONS
-}
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +48,7 @@ def build_report_tab(returns_summary: dict | None) -> html.Div:
                         html.Label("Strategy", className="fw-bold mb-1"),
                         dcc.Dropdown(
                             id="report-strategy-selector",
-                            options=_STRATEGY_OPTIONS,
+                            options=STRATEGY_OPTIONS,
                             placeholder="Select a strategy",
                             clearable=False,
                             persistence=True,
@@ -160,7 +145,7 @@ def generate_report(
             no_update,
         )
 
-    display_name = _STRATEGY_DISPLAY_NAMES.get(strategy, strategy)
+    display_name = STRATEGY_DISPLAY_NAMES.get(strategy, strategy)
 
     # Build portfolio returns from strategy weights
     if strategy == "equal_weight":

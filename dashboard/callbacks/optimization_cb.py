@@ -433,8 +433,10 @@ def _build_metrics_table(store_data: dict) -> dbc.Table:
                 max_dd = float(dd.min())
                 metrics["Max Drawdown"] = f"{max_dd:.2%}"
 
-                # CVaR 95%
-                cvar_95 = float(port_ret.quantile(0.05))
+                # CVaR 95% (expected shortfall beyond VaR)
+                var_95 = port_ret.quantile(0.05)
+                tail = port_ret[port_ret <= var_95]
+                cvar_95 = float(tail.mean()) if len(tail) > 0 else float(var_95)
                 metrics["CVaR 95%"] = f"{cvar_95:.4f}"
 
         metrics_by_strategy[display_name] = metrics

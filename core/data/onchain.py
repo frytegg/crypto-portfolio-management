@@ -189,43 +189,15 @@ def fetch_onchain_data(force_refresh: bool = False) -> dict[str, pd.Series]:
     )
 
 
-def _interpret_tvl_momentum(value: float) -> str:
-    """Interpret TVL momentum signal."""
-    if value > 0.05:
-        return "Bullish"
-    if value < -0.05:
-        return "Bearish"
-    return "Neutral"
+def _interpret_signal(value: float, bull_threshold: float, bear_threshold: float) -> str:
+    """Classify a signal as Bullish/Bearish/Neutral based on thresholds.
 
-
-def _interpret_stablecoin_dominance(value: float) -> str:
-    """High stablecoin dominance = risk-off (bearish); low = risk-on (bullish).
-
-    With total crypto market cap as denominator, stablecoin dominance is
-    typically ~8-15%. Above 15% signals capital parking in stables (risk-off).
-    Below 8% signals capital deployed into risk assets (risk-on).
+    bull_threshold: value above this → Bullish
+    bear_threshold: value below this → Bearish
     """
-    if value > 0.15:
-        return "Bearish"
-    if value < 0.08:
+    if value > bull_threshold:
         return "Bullish"
-    return "Neutral"
-
-
-def _interpret_stablecoin_supply(value: float) -> str:
-    """Stablecoin supply growth = inflow (bullish)."""
-    if value > 0.03:
-        return "Bullish"
-    if value < -0.03:
-        return "Bearish"
-    return "Neutral"
-
-
-def _interpret_dex_volume(value: float) -> str:
-    """DEX volume trend above 1 = increasing activity."""
-    if value > 1.3:
-        return "Bullish"
-    if value < 0.7:
+    if value < bear_threshold:
         return "Bearish"
     return "Neutral"
 
@@ -294,10 +266,11 @@ def compute_onchain_signals(onchain_data: dict[str, pd.Series]) -> OnchainSignal
         dex_volume_trend_7d=dex_volume_trend_7d,
         chain_tvl_shares=chain_tvl_shares,
         as_of=as_of,
-        tvl_momentum_interpretation=_interpret_tvl_momentum(tvl_momentum_30d),
-        stablecoin_dominance_interpretation=_interpret_stablecoin_dominance(stablecoin_dominance),
-        stablecoin_supply_interpretation=_interpret_stablecoin_supply(stablecoin_supply_change_30d),
-        dex_volume_interpretation=_interpret_dex_volume(dex_volume_trend_7d),
+        tvl_momentum_interpretation=_interpret_signal(tvl_momentum_30d, 0.05, -0.05),
+        # Inverted: high dominance = risk-off (bearish), low = risk-on (bullish)
+        stablecoin_dominance_interpretation=_interpret_signal(-stablecoin_dominance, -0.08, -0.15),
+        stablecoin_supply_interpretation=_interpret_signal(stablecoin_supply_change_30d, 0.03, -0.03),
+        dex_volume_interpretation=_interpret_signal(dex_volume_trend_7d, 1.3, 0.7),
     )
 
     log.info(

@@ -19,14 +19,10 @@ from dashboard.callbacks import register_all_callbacks
 from dashboard.layout import create_layout
 from dashboard.theme import EXTERNAL_STYLESHEETS, load_figure_template
 
-# 1. Logging
 setup_logging()
 log = structlog.get_logger(__name__)
-
-# 2. Plotly template
 load_figure_template()
 
-# 3. Dash app
 app = dash.Dash(
     __name__,
     external_stylesheets=EXTERNAL_STYLESHEETS,
@@ -41,13 +37,9 @@ server = app.server  # Flask server for gunicorn
 def health():
     return jsonify({"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}), 200
 
-# 4. Layout
 app.layout = create_layout()
-
-# 5. Callbacks
 register_all_callbacks(app)
 
-# 6. Startup tasks (data seeding + WebSocket)
 log.info(
     "app_startup",
     env=settings.APP_ENV,
@@ -80,31 +72,21 @@ def _is_cache_stale() -> bool:
 
 
 def _startup_data_seeding() -> None:
-    """Seed all data caches on startup (runs in background thread).
-
-    1. Fetch universe (if empty or stale)
-    2. Fetch historical prices/returns
-    3. Fetch on-chain data
-    4. Pre-cache equal_weight optimization
-    """
+    """Seed all data caches on startup (runs in background thread)."""
     try:
-        # 1. Universe
         universe = fetch_universe()
         log.info("startup_universe_fetched", n_assets=len(universe))
 
-        # 2. Historical prices/returns
         fetch_historical_data(universe)
         cache.set("meta:data_updated_at", datetime.now(timezone.utc).isoformat())
         log.info("startup_historical_data_fetched")
 
-        # 3. On-chain data
         try:
             fetch_onchain_data()
             log.info("startup_onchain_data_fetched")
         except Exception as exc:
             log.warning("startup_onchain_fetch_failed", error=str(exc))
 
-        # 4. Pre-cache equal_weight
         try:
             returns_df = cache.get("returns")
             if returns_df is not None and not returns_df.empty:
@@ -122,7 +104,7 @@ def _startup_data_seeding() -> None:
         except Exception as exc:
             log.warning("startup_equal_weight_precache_failed", error=str(exc))
 
-        # 5. Start WebSocket price feed
+        # WebSocket price feed
         if settings.BINANCE_WS_ENABLED and universe:
             binance_symbols = [a.binance_symbol for a in universe if a.binance_symbol]
             price_feed = BinancePriceFeed(cache, binance_symbols)

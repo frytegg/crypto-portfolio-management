@@ -172,8 +172,8 @@ def run_backtest(
                     # Turnover and transaction cost
                     turnover = float(np.abs(new_weights - weights_current).sum())
                     cost = turnover * config.transaction_cost_bps / 10_000
-                    portfolio_value *= (1 - cost)
                     total_costs += cost * portfolio_value
+                    portfolio_value *= (1 - cost)
 
                     weights_current = new_weights
                     actual_rebalance_dates.append(date)
@@ -205,8 +205,8 @@ def run_backtest(
 
                     turnover = float(np.abs(new_weights - weights_current).sum())
                     cost = turnover * config.transaction_cost_bps / 10_000
-                    portfolio_value *= (1 - cost)
                     total_costs += cost * portfolio_value
+                    portfolio_value *= (1 - cost)
 
                     weights_current = new_weights
                     actual_rebalance_dates.append(date)
