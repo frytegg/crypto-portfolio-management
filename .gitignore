@@ -42,6 +42,15 @@ logs/
 *.aux
 *.out
 *.toc
+*.log
+*.synctex.gz
+
+# Generated presentation files
+scripts/
+*.pptx
+docs/pitch-script*
+docs/paper.pdf
+context.pdf
 
 # Spec
 spec_roadmap.md

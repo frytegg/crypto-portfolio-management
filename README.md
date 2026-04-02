@@ -6,6 +6,61 @@ A modular, research-grade portfolio optimization dashboard for cryptocurrency as
 
 ---
 
+## Getting Started
+
+### Prerequisites
+
+- Python 3.11+
+- A [CoinGecko Demo API key](https://www.coingecko.com/en/api) (free tier works)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/<your-username>/crypto-portfolio-management.git
+cd crypto-portfolio-management
+
+# Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate        # Linux/macOS
+# .venv\Scripts\activate         # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Configuration
+
+```bash
+# Copy the example env file
+cp .env.example .env
+```
+
+Edit `.env` with your settings:
+
+```env
+APP_ENV=development
+APP_DEBUG=true
+PORT=8050
+COINGECKO_API_KEY=your_api_key_here
+CACHE_DIR=.cache
+BINANCE_WS_ENABLED=true
+```
+
+### Running Locally
+
+```bash
+# Development server (with hot reload)
+python app.py
+
+# Production server
+gunicorn app:server --bind 0.0.0.0:8050 --workers 1 --threads 4 --timeout 120
+```
+
+Open [http://localhost:8050](http://localhost:8050) in your browser.
+
+---
+
 ## Features
 
 ### Portfolio Optimization (7 Strategies)
@@ -165,61 +220,6 @@ Runtime:
 | **Logging** | structlog (structured JSON) |
 | **Server** | gunicorn |
 | **Testing** | pytest, pytest-cov |
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Python 3.11+
-- A [CoinGecko Demo API key](https://www.coingecko.com/en/api) (free tier works)
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/<your-username>/crypto-portfolio-management.git
-cd crypto-portfolio-management
-
-# Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate        # Linux/macOS
-# .venv\Scripts\activate         # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Configuration
-
-```bash
-# Copy the example env file
-cp .env.example .env
-```
-
-Edit `.env` with your settings:
-
-```env
-APP_ENV=development
-APP_DEBUG=true
-PORT=8050
-COINGECKO_API_KEY=your_api_key_here
-CACHE_DIR=.cache
-BINANCE_WS_ENABLED=true
-```
-
-### Running Locally
-
-```bash
-# Development server (with hot reload)
-python app.py
-
-# Production server
-gunicorn app:server --bind 0.0.0.0:8050 --workers 1 --threads 4 --timeout 120
-```
-
-Open [http://localhost:8050](http://localhost:8050) in your browser.
 
 ---
 
