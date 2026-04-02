@@ -26,10 +26,7 @@ from core.data.onchain import (
     _fetch_dex_volume,
     _fetch_stablecoin_mcap,
     _fetch_total_tvl,
-    _interpret_dex_volume,
-    _interpret_stablecoin_dominance,
-    _interpret_stablecoin_supply,
-    _interpret_tvl_momentum,
+    _interpret_signal,
     compute_onchain_signals,
     fetch_onchain_data,
 )
@@ -348,47 +345,48 @@ class TestComputeOnchainSignalsEdgeCases:
 
 class TestSignalInterpretations:
     def test_tvl_momentum_bullish(self):
-        assert _interpret_tvl_momentum(0.10) == "Bullish"
+        assert _interpret_signal(0.10, 0.05, -0.05) == "Bullish"
 
     def test_tvl_momentum_neutral(self):
-        assert _interpret_tvl_momentum(0.02) == "Neutral"
+        assert _interpret_signal(0.02, 0.05, -0.05) == "Neutral"
 
     def test_tvl_momentum_bearish(self):
-        assert _interpret_tvl_momentum(-0.10) == "Bearish"
+        assert _interpret_signal(-0.10, 0.05, -0.05) == "Bearish"
 
     def test_stablecoin_dominance_bearish(self):
-        assert _interpret_stablecoin_dominance(0.20) == "Bearish"
+        # Inverted: high dominance = risk-off → negate value
+        assert _interpret_signal(-0.20, -0.08, -0.15) == "Bearish"
 
     def test_stablecoin_dominance_neutral(self):
-        assert _interpret_stablecoin_dominance(0.10) == "Neutral"
+        assert _interpret_signal(-0.10, -0.08, -0.15) == "Neutral"
 
     def test_stablecoin_dominance_bullish(self):
-        assert _interpret_stablecoin_dominance(0.05) == "Bullish"
+        assert _interpret_signal(-0.05, -0.08, -0.15) == "Bullish"
 
     def test_stablecoin_supply_bullish(self):
-        assert _interpret_stablecoin_supply(0.05) == "Bullish"
+        assert _interpret_signal(0.05, 0.03, -0.03) == "Bullish"
 
     def test_stablecoin_supply_neutral(self):
-        assert _interpret_stablecoin_supply(0.01) == "Neutral"
+        assert _interpret_signal(0.01, 0.03, -0.03) == "Neutral"
 
     def test_stablecoin_supply_bearish(self):
-        assert _interpret_stablecoin_supply(-0.05) == "Bearish"
+        assert _interpret_signal(-0.05, 0.03, -0.03) == "Bearish"
 
     def test_dex_volume_bullish(self):
-        assert _interpret_dex_volume(1.5) == "Bullish"
+        assert _interpret_signal(1.5, 1.3, 0.7) == "Bullish"
 
     def test_dex_volume_neutral(self):
-        assert _interpret_dex_volume(1.0) == "Neutral"
+        assert _interpret_signal(1.0, 1.3, 0.7) == "Neutral"
 
     def test_dex_volume_bearish(self):
-        assert _interpret_dex_volume(0.5) == "Bearish"
+        assert _interpret_signal(0.5, 1.3, 0.7) == "Bearish"
 
     def test_boundary_values(self):
-        """Exact boundary values should be Neutral."""
-        assert _interpret_tvl_momentum(0.05) == "Neutral"
-        assert _interpret_tvl_momentum(-0.05) == "Neutral"
-        assert _interpret_stablecoin_supply(0.03) == "Neutral"
-        assert _interpret_stablecoin_supply(-0.03) == "Neutral"
+        """Exact boundary values should be Neutral (not strictly greater/less)."""
+        assert _interpret_signal(0.05, 0.05, -0.05) == "Neutral"
+        assert _interpret_signal(-0.05, 0.05, -0.05) == "Neutral"
+        assert _interpret_signal(0.03, 0.03, -0.03) == "Neutral"
+        assert _interpret_signal(-0.03, 0.03, -0.03) == "Neutral"
 
 
 # ---------------------------------------------------------------------------

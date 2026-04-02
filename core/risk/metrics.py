@@ -50,7 +50,7 @@ def compute_risk_metrics(
     if len(downside) > 0:
         downside_std = float(downside.std())
         sortino = (
-            round(ann_ret / (downside_std * np.sqrt(ann_factor)), 6)
+            round((ann_ret - risk_free_rate) / (downside_std * np.sqrt(ann_factor)), 6)
             if downside_std > 0
             else 0.0
         )
@@ -58,7 +58,7 @@ def compute_risk_metrics(
         sortino = round(float(np.inf), 6) if ann_ret > 0 else 0.0
 
     # --- Equity curve and drawdown ---
-    equity_curve = (1 + returns).cumprod()
+    equity_curve = np.exp(returns.cumsum())
     drawdown_series = equity_curve / equity_curve.cummax() - 1
     max_dd = round(float(drawdown_series.min()), 6)
 
@@ -115,8 +115,8 @@ def compute_risk_metrics(
 
 
 def compute_drawdown_series(returns: pd.Series) -> pd.Series:
-    """Compute drawdown time series from returns."""
-    equity = (1 + returns).cumprod()
+    """Compute drawdown time series from log returns."""
+    equity = np.exp(returns.cumsum())
     return equity / equity.cummax() - 1
 
 

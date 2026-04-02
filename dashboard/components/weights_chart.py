@@ -112,33 +112,3 @@ def create_weights_bar(weights_by_strategy: dict[str, pd.Series]) -> go.Figure:
     return fig
 
 
-def create_weights_pie(weights: pd.Series, title: str = "") -> go.Figure:
-    """Pie chart for a single strategy's weights.
-
-    Args:
-        weights: pd.Series indexed by asset name.
-        title: Chart title.
-
-    Returns:
-        go.Figure pie chart.
-    """
-    # Filter near-zero weights
-    w = weights[weights > 0.001].sort_values(ascending=False)
-
-    fig = go.Figure(go.Pie(
-        labels=w.index.tolist(),
-        values=w.values.tolist(),
-        textinfo="label+percent",
-        textfont=dict(size=10),
-        hole=0.3,
-    ))
-
-    fig.update_layout(
-        **FIGURE_LAYOUT,
-        title=title,
-        height=400,
-        showlegend=True,
-        legend=dict(font=dict(size=9)),
-    )
-
-    return fig

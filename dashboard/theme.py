@@ -54,6 +54,23 @@ STRATEGY_DISPLAY_COLORS: dict[str, str] = {
 
 
 
+# Strategy dropdown options and display name mapping (used across callbacks)
+STRATEGY_OPTIONS = [
+    {"label": "Equal Weight", "value": "equal_weight"},
+    {"label": "Markowitz MVO", "value": "markowitz"},
+    {"label": "GARCH-GMV", "value": "garch_gmv"},
+    {"label": "Hierarchical Risk Parity", "value": "hrp"},
+    {"label": "Equal Risk Contribution", "value": "risk_parity"},
+    {"label": "Mean-CVaR", "value": "cvar"},
+    {"label": "Black-Litterman", "value": "black_litterman"},
+    {"label": "Regime-Aware", "value": "regime_aware"},
+]
+
+STRATEGY_DISPLAY_NAMES: dict[str, str] = {
+    o["value"]: o["label"] for o in STRATEGY_OPTIONS
+}
+
+
 def hex_to_rgba(hex_color: str, alpha: float = 1.0) -> str:
     """Convert hex color to rgba() string for semi-transparent fills."""
     h = hex_color.lstrip("#")

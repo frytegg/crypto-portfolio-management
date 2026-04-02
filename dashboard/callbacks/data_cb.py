@@ -26,7 +26,7 @@ from dashboard.callbacks.optimization_cb import build_optimization_tab
 from dashboard.callbacks.regime_cb import build_regime_tab
 from dashboard.callbacks.report_cb import build_report_tab
 from dashboard.components.metric_card import create_metric_card
-from dashboard.theme import COLORS, FIGURE_LAYOUT
+from dashboard.theme import COLORS, FIGURE_LAYOUT, STRATEGY_OPTIONS, STRATEGY_DISPLAY_NAMES
 
 log = structlog.get_logger(__name__)
 
@@ -402,20 +402,6 @@ def _build_universe_table(universe: list[UniverseAsset]) -> html.Div:
 # Risk Dashboard tab (Tab 5)
 # ---------------------------------------------------------------------------
 
-_STRATEGY_OPTIONS = [
-    {"label": "Equal Weight", "value": "equal_weight"},
-    {"label": "Markowitz MVO", "value": "markowitz"},
-    {"label": "GARCH-GMV", "value": "garch_gmv"},
-    {"label": "Hierarchical Risk Parity", "value": "hrp"},
-    {"label": "Equal Risk Contribution", "value": "risk_parity"},
-    {"label": "Mean-CVaR", "value": "cvar"},
-    {"label": "Black-Litterman", "value": "black_litterman"},
-    {"label": "Regime-Aware", "value": "regime_aware"},
-]
-
-_STRATEGY_DISPLAY_NAMES: dict[str, str] = {
-    o["value"]: o["label"] for o in _STRATEGY_OPTIONS
-}
 
 
 def _build_risk_tab(returns_summary: dict | None) -> html.Div:
@@ -452,7 +438,7 @@ def _build_risk_tab(returns_summary: dict | None) -> html.Div:
                 html.Label("Strategy for Risk Metrics", className="fw-bold mb-1"),
                 dcc.Dropdown(
                     id="risk-strategy-selector",
-                    options=_STRATEGY_OPTIONS,
+                    options=STRATEGY_OPTIONS,
                     placeholder="Select a strategy",
                     clearable=False,
                     persistence=True,
@@ -519,7 +505,7 @@ def update_risk_charts(
         empty.update_layout(**FIGURE_LAYOUT, title="Select a strategy")
         return empty, empty, empty
 
-    display_name = _STRATEGY_DISPLAY_NAMES.get(strategy, strategy)
+    display_name = STRATEGY_DISPLAY_NAMES.get(strategy, strategy)
 
     # Build portfolio return series from weights
     if strategy == "equal_weight":
